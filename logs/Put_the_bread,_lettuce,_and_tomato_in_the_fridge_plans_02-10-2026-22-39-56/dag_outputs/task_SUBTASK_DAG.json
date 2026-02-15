@@ -1,0 +1,77 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Wash_the_Fork",
+      "objects": [
+        "robot1",
+        "fork",
+        "sink",
+        "counterTop"
+      ],
+      "preconds": [
+        "Robot not at fork location",
+        "Robot not holding fork",
+        "Robot not at bowl location"
+      ],
+      "effects": [
+        "Robot at fork location",
+        "Robot holding fork",
+        "Fork at sink location"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Put_the_Fork_in_the_Bowl",
+      "objects": [
+        "robot1",
+        "fork",
+        "bowl",
+        "kitchen",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot not inaction",
+        "Robot at kitchen",
+        "Fork at countertop",
+        "Bowl at countertop",
+        "Robot holding fork",
+        "Robot not at bowl"
+      ],
+      "effects": [
+        "Robot at bowl",
+        "Fork at bowl",
+        "Robot not holding fork"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "causal",
+      "reason": "Robot must put fork in bowl after washing fork"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Same fork object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "binding",
+      "reason": "Robot must hold fork while putting in bowl"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ]
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "subtask_name": "subtask_01_Put_the_Bread_in_the_Fridge",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "gotoobject robot1 tomato (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "tomato"
+      ],
+      "parallel_group": 0
+    },
+    {
+      "id": 1,
+      "action": "pickupobject robot1 tomato countertop (1)",
+      "action_type": "pickupobject",
+      "robot": "robot1",
+      "objects": [
+        "tomato",
+        "countertop"
+      ],
+      "parallel_group": 1
+    },
+    {
+      "id": 2,
+      "action": "throwobject robot1 tomato fridge (1)",
+      "action_type": "throwobject",
+      "robot": "robot1",
+      "objects": [
+        "tomato",
+        "fridge"
+      ],
+      "parallel_group": 2
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 0,
+      "to_id": 1,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "binding"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      0
+    ],
+    "1": [
+      1
+    ],
+    "2": [
+      2
+    ]
+  },
+  "binding_edges": [
+    {
+      "from": 1,
+      "to": 2
+    }
+  ]
+}

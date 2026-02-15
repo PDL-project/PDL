@@ -1,0 +1,5 @@
+(gotoobject robot1 tomato)
+(pickupobject robot1 tomato diningtable)
+(gotoobject robot1 countertop)
+(drophandobject robot1 tomato countertop)
+; cost = 4 (general cost)

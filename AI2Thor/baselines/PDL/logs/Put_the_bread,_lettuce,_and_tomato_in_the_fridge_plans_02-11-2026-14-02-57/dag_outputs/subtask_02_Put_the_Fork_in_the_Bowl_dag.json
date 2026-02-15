@@ -1,0 +1,52 @@
+{
+  "subtask_name": "subtask_02_Put_the_Fork_in_the_Bowl",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "gotoobject robot1 sink (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "sink"
+      ],
+      "parallel_group": 0
+    },
+    {
+      "id": 1,
+      "action": "putobject robot1 fork sink (1)",
+      "action_type": "putobject",
+      "robot": "robot1",
+      "objects": [
+        "fork",
+        "sink"
+      ],
+      "parallel_group": 1
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 0,
+      "to_id": 1,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 1,
+      "dependency_type": "binding"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      0
+    ],
+    "1": [
+      1
+    ]
+  },
+  "binding_edges": [
+    {
+      "from": 1,
+      "to": 1
+    }
+  ]
+}

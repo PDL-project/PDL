@@ -1,0 +1,5 @@
+gotoobject robot1 bread (1)
+pickupobject robot1 bread countertop (1)
+gotoobject robot1 fridge (1)
+openfridge robot1 fridge (1)
+putobjectinfridge robot1 bread fridge (1)

@@ -1,0 +1,3 @@
+gotoobject robot1 bowl (1)
+pickupobject robot1 bowl diningtable (1)
+throwobject robot1 bowl countertop (1)

@@ -1,0 +1,104 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Put_the_Bread_in_the_Fridge",
+      "objects": [
+        "bread",
+        "fridge",
+        "countertop",
+        "floor",
+        "robot1"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is at the kitchen.",
+        "Bread is on the countertop.",
+        "Fridge is on the floor.",
+        "Fridge is closed.",
+        "Robot is not holding the bread."
+      ],
+      "effects": [
+        "Bread is in the fridge.",
+        "Robot is not holding the bread."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Put_the_Lettuce_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "lettuce",
+        "fridge",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Lettuce is on the countertop",
+        "Fridge is on the floor",
+        "Fridge is closed",
+        "Robot is not holding the lettuce"
+      ],
+      "effects": [
+        "Lettuce is in the fridge",
+        "Robot is not holding the lettuce",
+        "Fridge is closed"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Put_the_Tomato_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "tomato",
+        "fridge",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Tomato is on the countertop",
+        "Fridge is closed",
+        "Robot is not holding the tomato"
+      ],
+      "effects": [
+        "Tomato is in the fridge",
+        "Robot is not holding the tomato",
+        "Fridge is closed"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Shared object 'fridge' - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Shared object 'fridge' - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Shared object 'fridge' - cannot be manipulated in parallel"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ],
+    "2": [
+      3
+    ]
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "subtask_name": "subtask_05_Move_the_Pan_to_the_StoveBurner",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "gotoobject robot1 mug (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "mug"
+      ],
+      "parallel_group": 0
+    },
+    {
+      "id": 1,
+      "action": "pickupobject robot1 mug diningtable (1)",
+      "action_type": "pickupobject",
+      "robot": "robot1",
+      "objects": [
+        "mug",
+        "diningtable"
+      ],
+      "parallel_group": 1
+    },
+    {
+      "id": 2,
+      "action": "throwobject robot1 mug coffeemachine (1)",
+      "action_type": "throwobject",
+      "robot": "robot1",
+      "objects": [
+        "mug",
+        "coffeemachine"
+      ],
+      "parallel_group": 2
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 0,
+      "to_id": 1,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "binding"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      0
+    ],
+    "1": [
+      1
+    ],
+    "2": [
+      2
+    ]
+  },
+  "binding_edges": [
+    {
+      "from": 1,
+      "to": 2
+    }
+  ]
+}

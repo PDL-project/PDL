@@ -1,0 +1,67 @@
+# Task Description: Put the Bread in the Fridge.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at bread location
+#2. Robot not holding bread
+#3. Fridge is initially closed
+
+# SubTask 1: Put the Bread in the Fridge. 
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObjectInFridge, CloseObject
+    Related Objects: bread(Location=CounterTop), fridge(Location=Floor)
+
+GoToObject(robot1, bread)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 bread)
+
+PickupObject(robot1, bread, CounterTop)
+   Preconditions:
+     (at-location bread CounterTop)
+     (at robot1 bread)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 bread)
+
+GoToObject(robot1, fridge)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 fridge)
+
+OpenObject(robot1, fridge)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 fridge)
+   Effects:
+     (object-open robot1 fridge)
+     (fridge-open fridge)
+
+PutObjectInFridge(robot1, bread, fridge)
+   Preconditions:
+     (holding robot1 bread)
+     (at robot1 fridge)
+     (not (inaction robot1))
+     (is-fridge fridge)
+     (fridge-open fridge)
+   Effects:
+     (at-location bread fridge)
+     (not (holding robot1 bread))
+     (not (inaction robot1))
+
+CloseObject(robot1, fridge)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 fridge)
+   Effects:
+     (object-close robot1 fridge)
+     (not (fridge-open fridge))
+
+Goal condition: 
+(at-location bread fridge)
+
+# Task Put the Bread in the Fridge is done.

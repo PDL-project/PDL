@@ -1,0 +1,3 @@
+gotoobject robot1 pan (1)
+pickupobject robot1 pan diningtable (1)
+throwobject robot1 pan stoveburner (1)

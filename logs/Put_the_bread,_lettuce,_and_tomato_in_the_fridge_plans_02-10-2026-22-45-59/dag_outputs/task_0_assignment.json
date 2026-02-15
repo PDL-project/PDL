@@ -1,0 +1,25 @@
+{
+  "task_idx": 0,
+  "assignment": {
+    "1": 2,
+    "2": 2,
+    "3": 2
+  },
+  "subtasks": [
+    {
+      "id": 1,
+      "title": "Put the Bread in the Fridge.",
+      "robot": 2
+    },
+    {
+      "id": 2,
+      "title": "Put the Lettuce in the Fridge.",
+      "robot": 2
+    },
+    {
+      "id": 3,
+      "title": "Put the Tomato in the Fridge.",
+      "robot": 2
+    }
+  ]
+}
