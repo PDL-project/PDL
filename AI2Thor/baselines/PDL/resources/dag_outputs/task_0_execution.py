@@ -23,50 +23,40 @@ if scripts_path not in sys.path:
 from MultiRobotExecutor import MultiRobotExecutor, SubtaskPlan
 
 # --- Robot Assignment ---
-ASSIGNMENT = {1: 2, 2: 2, 3: 5, 4: 3, 5: 1, 6: 3}  # subtask_id -> robot_id
-PARALLEL_GROUPS = {0: [0, 4, 5, 6], 1: [1], 2: [2], 3: [3]}  # group_id -> [subtask_ids]
+ASSIGNMENT = {1: 1, 2: 5, 3: 3, 4: 4}  # subtask_id -> robot_id
+PARALLEL_GROUPS = {0: [1], 1: [2], 2: [3], 3: [4]}  # group_id -> [subtask_ids]
 AGENT_COUNT = 5
-SPAWN_POSITIONS = {1: (-2.75, 0.9009997844696045, 2.75), 2: (-1.25, 0.9009996652603149, 1.0), 3: (-1.25, 0.9009997844696045, 3.25), 4: (-3.75, 0.9009997248649597, 1.25), 5: (-2.5, 0.9009997248649597, 1.25)}  # LP에서 결정된 스폰 좌표
+SPAWN_POSITIONS = {1: (-1.0, 0.900999128818512, 2.0), 2: (1.75, 0.900999128818512, 1.0), 3: (-1.25, 0.900999128818512, -1.75), 4: (1.0, 0.900999128818512, -1.75), 5: (-1.0, 0.900999128818512, 0.5)}  # LP에서 결정된 스폰 좌표
 
 # --- Subtask Plans ---
 SUBTASK_PLANS = {
     1: {
-        'name': 'subtask_01_Move_the_Bread_to_the_CounterTop',
-        'robot_id': 2,
-        'actions': ['gotoobject robot1 bread (1)', 'pickupobject robot1 bread diningtable (1)', 'gotoobject robot1 countertop (1)', 'drophandobject robot1 bread countertop (1)'],
-        'parallel_group': 1,
+        'name': 'subtask_01_Put_the_Apple_in_the_Fridge',
+        'robot_id': 1,
+        'actions': ['gotoobject robot1 apple (1)', 'pickupobject robot1 apple countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 apple fridge (1)', 'closeobject robot1 fridge (1)'],
+        'parallel_group': 0,
     },
     2: {
-        'name': 'subtask_02_Move_the_Fork_to_the_Drawer',
-        'robot_id': 2,
-        'actions': ['gotoobject robot1 fork (1)', 'pickupobject robot1 fork diningtable (1)', 'gotoobject robot1 drawer (1)', 'openobject robot1 drawer (1)', 'drophandobject robot1 fork drawer (1)', 'closeobject robot1 drawer (1)'],
-        'parallel_group': 2,
+        'name': 'subtask_02_Put_the_Bread_in_the_Fridge',
+        'robot_id': 5,
+        'actions': ['gotoobject robot1 bread (1)', 'pickupobject robot1 bread countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 bread fridge (1)', 'closeobject robot1 fridge (1)'],
+        'parallel_group': 1,
     },
     3: {
-        'name': 'subtask_03_Move_the_Spoon_to_the_Drawer',
-        'robot_id': 5,
-        'actions': ['gotoobject robot1 spoon (1)', 'pickupobject robot1 spoon diningtable (1)', 'gotoobject robot1 drawer (1)', 'openobject robot1 drawer (1)', 'drophandobject robot1 spoon drawer (1)', 'closeobject robot1 drawer (1)'],
-        'parallel_group': 3,
+        'name': 'subtask_03_Put_the_Lettuce_in_the_Fridge',
+        'robot_id': 3,
+        'actions': ['gotoobject robot1 lettuce (1)', 'pickupobject robot1 lettuce countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 lettuce fridge (1)', 'closeobject robot1 fridge (1)'],
+        'parallel_group': 2,
     },
     4: {
-        'name': 'subtask_04_Move_the_Pan_to_the_StoveBurner',
-        'robot_id': 3,
-        'actions': ['gotoobject robot1 pan (1)', 'pickupobject robot1 pan diningtable (1)', 'gotoobject robot1 stoveburner (1)', 'drophandobject robot1 pan stoveburner (1)'],
-        'parallel_group': 0,
-    },
-    5: {
-        'name': 'subtask_05_Move_the_Tomato_to_the_CounterTop',
-        'robot_id': 1,
-        'actions': ['gotoobject robot1 tomato (1)', 'pickupobject robot1 tomato diningtable (1)', 'gotoobject robot1 countertop (1)', 'drophandobject robot1 tomato countertop (1)'],
-        'parallel_group': 0,
-    },
-    6: {
-        'name': 'subtask_06_Move_the_Mug_to_the_CoffeeMachine',
-        'robot_id': 3,
-        'actions': ['gotoobject robot1 mug (1)', 'pickupobject robot1 mug diningtable (1)', 'gotoobject robot1 coffeemachine (1)', 'drophandobject robot1 mug coffeemachine (1)'],
-        'parallel_group': 0,
+        'name': 'subtask_04_Put_the_Tomato_in_the_Fridge',
+        'robot_id': 4,
+        'actions': ['gotoobject robot1 tomato (1)', 'pickupobject robot1 tomato countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 tomato fridge (1)', 'closeobject robot1 fridge (1)'],
+        'parallel_group': 3,
     },
 }
+
+TASK_DESCRIPTION = 'Put all groceries in the fridge'
 
 
 def main():

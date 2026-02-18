@@ -1,0 +1,32 @@
+{
+  "1": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": null
+  },
+  "4": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": null
+  },
+  "5": {
+    "state": "FAILED",
+    "error_message": "Wall is blocking Agent 0 from moving by (0.0647, 0.0000, 0.2415).",
+    "effects": null
+  },
+  "2": {
+    "state": "FAILED",
+    "error_message": "Dishwasher is blocking Agent 1 from moving by (-0.2436, 0.0000, -0.0562).",
+    "effects": null
+  },
+  "6": {
+    "state": "FAILED",
+    "error_message": "Can't place an object if Agent isn't holding anything",
+    "effects": null
+  },
+  "3": {
+    "state": "FAILED",
+    "error_message": "a held item: Spoon_ea8b29ee with something if agent rotates Left 20 degrees",
+    "effects": null
+  }
+}

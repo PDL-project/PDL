@@ -30,6 +30,38 @@ from ai2thor.controller import Controller
 from scipy.spatial import distance
 from AI2Thor.Tasks.get_scene_init import get_scene_initializer
 
+# task_mapper.py 딕셔너리 (torch 없이 자연어→폴더명 변환)
+_TASK_NAME_MAP = {
+    "Put the bread, lettuce, and tomato in the fridge": "1_put_bread_lettuce_tomato_fridge",
+    "Put the computer, book, and remotecontrol on the sofa": "1_put_computer_book_remotecontrol_sofa",
+    "Put the butter knife, bowl, and mug on the countertop": "1_put_knife_bowl_mug_countertop",
+    "Put the plate, mug, and bowl in the fridge": "1_put_plate_mug_bowl_fridge",
+    "Put the remotecontrol, keys, and watch in the box": "1_put_remotecontrol_keys_watch_box",
+    "Put the vase, tissue box, and remote control on the table": "1_put_vase_tissuebox_remotecontrol_table",
+    "Slice the bread, lettuce, tomato, and egg": "1_slice_bread_lettuce_tomato_egg",
+    "Turn off the faucet and light if either is on": "1_turn_off_faucet_light",
+    "Wash the bowl, mug, pot, and pan": "1_wash_bowl_mug_pot_pan",
+    "Open all the drawers": "2_open_all_drawers",
+    "Open all the cabinets": "2_open_all_cabinets",
+    "Turn on all the stove knobs": "2_turn_on_all_stove_knobs",
+    "Put all the vases on the countertop": "2_put_all_vases_countertop",
+    "Put all the tomatoes and potatoes in the fridge": "2_put_all_tomatoes_potatoes_fridge",
+    "Put all credit cards and remote controls in the box": "2_put_all_creditcards_remotecontrols_box",
+    "Put all groceries in the fridge": "3_put_all_groceries_fridge",
+    "Put all shakers in the fridge": "3_put_all_shakers_fridge",
+    "Put all silverware in any drawer": "3_put_all_silverware_drawer",
+    "Put all school supplies on the sofa": "3_put_all_school_supplies_sofa",
+    "Move everything on the table to the sofa": "3_clear_table_to_sofa",
+    "Put all kitchenware in the cardboard box": "3_put_all_kitchenware_box",
+    "Clear the table by placing items at their appropriate positions": "4_clear_table_kitchen",
+    "Clear the kitchen central countertop by placing items in their appropriate positions": "4_clear_countertop_kitchen",
+    "Clear the couch by placing the items in other appropriate positions": "4_clear_couch_livingroom",
+    "Make the living room dark": "4_make_livingroom_dark",
+    "Slice all sliceable objects": "4_slice_all_sliceable",
+    "Put appropriate utensils in storage": "4_put_appropriate_storage",
+}
+_TASK_NAME_MAP_LOWER = {k.lower(): v for k, v in _TASK_NAME_MAP.items()}
+
 
 # -----------------------------
 # 각 서브태스크의 ID, 이름, 담당 로봇 ID, 수행할 액션 리스트, 병렬 그룹 번호를 저장하는 데이터 구조
@@ -130,6 +162,8 @@ class MultiRobotExecutor:
         self._subtask_failed: Dict[int, bool] = {}
         self._subtask_last_error: Dict[int, str] = {}
         self._subtask_results: Dict[int, SubTaskExecutionResult] = {}
+        # 실시간 상태 반영용 (execute_in_ai2thor_with_feedback 호출 시에만 설정)
+        self._feedback_state_store: Optional[Any] = None
 
         # Checker (Execution 평가 모듈)
         self.checker = None # Scene 내 Object를 사람이 읽을 수 있는 형태로 변환하기 위한 Dictionary
@@ -241,6 +275,14 @@ class MultiRobotExecutor:
         # 여러 개 들고 있을 경우 첫 번째 객체만 사용
         self.inventory[agent_id] = self._convert_object_id_to_readable(inv[0]["objectId"])
 
+    def _checker_report(self, agent_id: int, action_name: str, obj_readable: str, success: bool):
+        """checker에 액션을 리포팅하는 헬퍼. checker가 없으면 무시."""
+        if self.checker is None:
+            return
+        self._update_inventory(agent_id)
+        action_str = f"{action_name}({obj_readable})"
+        self.checker.perform_metric_check(action_str, success, self.inventory[agent_id])
+
     def _init_checker(self, task_description: str, scene_name: str):
         """
         Task 수행 결과를 평가하기 위한 Checker 모듈 초기화 함수.
@@ -254,7 +296,12 @@ class MultiRobotExecutor:
         Task 성공 여부(Coverage, Transport Rate 등)를
         온라인으로 평가하는 역할을 수행함.
         """
-        scene_initializer, checker_mod = get_scene_initializer(task_description, scene_name)
+        # 자연어 task description을 폴더명으로 변환 (task_mapper.py 딕셔너리와 동일, torch 불필요)
+        task_folder = _TASK_NAME_MAP.get(task_description) \
+                      or _TASK_NAME_MAP_LOWER.get(task_description.lower().strip()) \
+                      or task_description
+        print(f"[Checker] Mapped '{task_description}' -> '{task_folder}'")
+        scene_initializer, checker_mod = get_scene_initializer(task_folder, scene_name)
         self.checker = checker_mod.Checker()
         # 현재 Scene 내 모든 객체를 Checker에 전달
         all_oids = [obj["objectId"] for obj in self.controller.last_event.metadata["objects"]]
@@ -682,31 +729,6 @@ class MultiRobotExecutor:
 
                 if img_counter % 50 == 0:
                     print(f"[ExecActions] processed={img_counter}, queue={self._queue_total_len()}")
-
-                # Checker update
-                if self.checker is not None and multi_agent_event is not None:
-                    try:
-                        agent_id = act.get("agent_id", 0)
-                        success = multi_agent_event.events[agent_id].metadata.get("lastActionSuccess", True)
-                        action_name = act.get("action")
-                        obj_id = act.get("objectId")
-                        if action_name in [
-                            "PickupObject",
-                            "PutObject",
-                            "ToggleObjectOn",
-                            "ToggleObjectOff",
-                            "OpenObject",
-                            "CloseObject",
-                            "SliceObject",
-                            "BreakObject",
-                            "ThrowObject",
-                        ]:
-                            readable_obj = self._convert_object_id_to_readable(obj_id)
-                            action_str = f"{action_name}({readable_obj})"
-                            self._update_inventory(agent_id)
-                            self.checker.perform_metric_check(action_str, success, self.inventory[agent_id])
-                    except Exception:
-                        pass
 
                 # 화면 뷰
                 if multi_agent_event is not None:
@@ -1320,6 +1342,10 @@ class MultiRobotExecutor:
             return False
 
         print(f"[Robot{agent_id+1}] Reached {dest_obj}")
+        # checker: NavigateTo 크레딧
+        obj_id_nav = self._find_object_id(dest_obj)
+        readable = self._convert_object_id_to_readable(obj_id_nav) if obj_id_nav else dest_obj
+        self._checker_report(agent_id, "NavigateTo", readable, True)
         time.sleep(0.1)
         return True
 
@@ -1339,6 +1365,10 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        # checker: PickUpObject (대문자 U — checker 형식)
+        readable = self._convert_object_id_to_readable(obj_id)
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "PickUpObject", readable, success)
 
     def PutObject(self, agent_id: int, obj_pattern: str, recp_pattern: str):
         """Put held object on/in receptacle."""
@@ -1353,6 +1383,9 @@ class MultiRobotExecutor:
             return
 
         print(f"[Robot{agent_id+1}] Putting on {recp_id}")
+        # checker: put 전 inventory 저장 (put 후엔 비어있으므로)
+        self._update_inventory(agent_id)
+        inv_before_put = self.inventory[agent_id]
         # NOTE: PutObject uses objectId for receptacle!
         self._enqueue_action({
             'action': 'PutObject',
@@ -1360,6 +1393,12 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        # checker: PutObject(receptacle) with inventory_object
+        if self.checker is not None:
+            recp_readable = self._convert_object_id_to_readable(recp_id)
+            success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+            action_str = f"PutObject({recp_readable})"
+            self.checker.perform_metric_check(action_str, success, inv_before_put)
 
     def OpenObject(self, agent_id: int, obj_pattern: str):
         """Open object."""
@@ -1383,6 +1422,10 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        # checker: OpenObject
+        readable = self._convert_object_id_to_readable(obj_id)
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "OpenObject", readable, success)
 
     def CloseObject(self, agent_id: int, obj_pattern: str):
         """Close object."""
@@ -1406,6 +1449,10 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        # checker: CloseObject
+        readable = self._convert_object_id_to_readable(obj_id)
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "CloseObject", readable, success)
 
     def SwitchOn(self, agent_id: int, obj_pattern: str):
         """Turn on object."""
@@ -1426,6 +1473,9 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        readable = self._convert_object_id_to_readable(obj_id)
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "ToggleObjectOn", readable, success)
 
     def SwitchOff(self, agent_id: int, obj_pattern: str):
         """Turn off object."""
@@ -1446,6 +1496,9 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        readable = self._convert_object_id_to_readable(obj_id)
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "ToggleObjectOff", readable, success)
 
     def SliceObject(self, agent_id: int, obj_pattern: str):
         """Slice object."""
@@ -1466,6 +1519,9 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        readable = self._convert_object_id_to_readable(obj_id)
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "SliceObject", readable, success)
 
     def BreakObject(self, agent_id: int, obj_pattern: str):
         """Break object."""
@@ -1486,17 +1542,24 @@ class MultiRobotExecutor:
             'agent_id': agent_id
         })
         time.sleep(1)
+        readable = self._convert_object_id_to_readable(obj_id)
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "BreakObject", readable, success)
 
     def ThrowObject(self, agent_id: int, obj_pattern: str):
         """Throw held object."""
         print(f"[Robot{agent_id+1}] Throwing {obj_pattern}")
 
+        obj_id = self._find_object_id(obj_pattern)
         self._enqueue_action({
             'action': 'ThrowObject',
-            'objectId': obj_pattern,  # Not actually used, but kept for consistency
+            'objectId': obj_id or obj_pattern,
             'agent_id': agent_id
         })
         time.sleep(1)
+        readable = self._convert_object_id_to_readable(obj_id) if obj_id else obj_pattern
+        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
+        self._checker_report(agent_id, "ThrowObject", readable, success)
 
     # -----------------------------
     # PDDL Action Parser & Executor 실행기
@@ -1858,10 +1921,14 @@ class MultiRobotExecutor:
     # Subtask 실행기
     # -----------------------------
     def _run_subtask(self, plan: SubtaskPlan):
-        """하나의 서브태스크에 포함된 모든 액션을 순차적으로 실행하는 함수. 피드백 모드일 때 결과를 _subtask_results에 기록."""
+        """하나의 서브태스크에 포함된 모든 액션을 순차적으로 실행하는 함수. 피드백 모드일 때 결과를 _subtask_results에 기록하고, 실시간 스토어가 있으면 즉시 반영."""
         tid = threading.get_ident()
         self._thread_subtask_id[tid] = plan.subtask_id
         self._subtask_failed[plan.subtask_id] = False  # 초기화
+
+        store = getattr(self, "_feedback_state_store", None)
+        if store is not None:
+            store.set_running(plan.subtask_id)
 
         agent_id = plan.robot_id - 1  # 1-기반 ID를 0-기반 인덱스로 변환
         print(f"\n[Subtask {plan.subtask_id}] {plan.subtask_name} -> Robot{plan.robot_id}")
@@ -1878,6 +1945,13 @@ class MultiRobotExecutor:
                 success=success,
                 error_message=err or None,
             )
+            if store is not None:
+                store.update_subtask_on_completion(
+                    plan.subtask_id,
+                    success=success,
+                    error_message=err or None,
+                    effects=None,
+                )
             print(f"[Subtask {plan.subtask_id}] Completed! success={success}")
         finally:
             self._thread_subtask_id.pop(tid, None)
@@ -1965,9 +2039,11 @@ class MultiRobotExecutor:
     def execute_in_ai2thor_with_feedback(
         self,
         floor_plan: int,
+        task_name: str = "task",
+        state_store: Optional[Any] = None,
     ) -> Dict[int, SubTaskExecutionResult]:
         """피드백 루프용: 서브태스크를 그룹별·순차 실행하고, 서브태스크별 성공/실패 결과를 반환.
-        (실패 시 Subtask Manager LLM / Central LLM이 replan에 사용)
+        state_store가 주어지면 개별 서브태스크 완료 시마다 즉시 상태를 반영(실시간 스토어 반영).
         """
         if not self.assignment or not self.parallel_groups or not self.subtask_plans:
             raise RuntimeError("Load assignment/DAG/plans first.")
@@ -1975,6 +2051,12 @@ class MultiRobotExecutor:
         self._subtask_failed = {}
         self._subtask_results = {}
         self._subtask_last_error = {}
+
+        if state_store is not None:
+            state_store.init_from_dag(self.parallel_groups)
+            self._feedback_state_store = state_store
+        else:
+            self._feedback_state_store = None
 
         agent_count = max(self.assignment.values()) if self.assignment else 1
         self.start_ai2thor(floor_plan=floor_plan, agent_count=agent_count)
@@ -1985,6 +2067,8 @@ class MultiRobotExecutor:
 
         print("=" * 60)
         print("[EXEC] Multi-Robot Execution (Feedback Mode: sequential per subtask)")
+        if state_store is not None:
+            print("[EXEC] Real-time state store: ON")
         print("=" * 60)
 
         try:
@@ -2001,6 +2085,7 @@ class MultiRobotExecutor:
                 time.sleep(0.3)
             return dict(self._subtask_results)
         finally:
+            self._feedback_state_store = None
             self.stop_ai2thor()
 
     # -----------------------------
@@ -2077,9 +2162,9 @@ class MultiRobotExecutor:
 
         lines.append("}")
         lines.append("")
-        if task_description is not None:
-            lines.append(f"TASK_DESCRIPTION = {repr(task_description)}")
-            lines.append("")
+        # Always emit TASK_DESCRIPTION in generated files so checker wiring is explicit.
+        lines.append(f"TASK_DESCRIPTION = {repr(task_description or '')}")
+        lines.append("")
 
         lines.extend([
             "",

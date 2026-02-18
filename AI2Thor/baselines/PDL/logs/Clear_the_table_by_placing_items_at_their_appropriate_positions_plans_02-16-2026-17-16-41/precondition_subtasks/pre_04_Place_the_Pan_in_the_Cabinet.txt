@@ -1,0 +1,65 @@
+# Task Description: Place the Pan in the Cabinet.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analysis:
+# 1. Robot not at any object location
+# 2. Robot not holding any object
+
+# SubTask 4: Place the Pan in the Cabinet.
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: pan(Location=DiningTable), cabinet(Location=Floor)
+
+GoToObject(robot1, pan)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 pan)
+
+PickupObject(robot1, pan, DiningTable)
+   Preconditions:
+     (at-location pan DiningTable)
+     (at robot1 pan)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 pan)
+
+GoToObject(robot1, cabinet)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 cabinet)
+
+OpenObject(robot1, cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 cabinet)
+   Effects:
+     (object-open robot1 cabinet)
+     (not (object-close robot1 cabinet))
+
+PutObject(robot1, pan, cabinet)
+   Preconditions:
+     (holding robot1 pan)
+     (at robot1 cabinet)
+     (not (inaction robot1))
+     (not (object-close robot1 cabinet))
+   Effects:
+     (at-location pan cabinet)
+     (not (holding robot1 pan))
+
+CloseObject(robot1, cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 cabinet)
+     (object-open robot1 cabinet)
+   Effects:
+     (object-close robot1 cabinet)
+     (not (object-open robot1 cabinet))
+
+Goal condition:
+(at-location pan cabinet)
+
+# Task Place the Pan in the Cabinet is done.
