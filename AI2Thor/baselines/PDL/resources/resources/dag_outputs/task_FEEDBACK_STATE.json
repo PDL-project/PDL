@@ -1,32 +1,37 @@
 {
   "1": {
-    "state": "SUCCESS",
-    "error_message": null,
-    "effects": null
-  },
-  "4": {
-    "state": "SUCCESS",
-    "error_message": null,
-    "effects": null
-  },
-  "5": {
     "state": "FAILED",
-    "error_message": "Wall is blocking Agent 0 from moving by (0.0647, 0.0000, 0.2415).",
-    "effects": null
-  },
-  "2": {
-    "state": "FAILED",
-    "error_message": "Dishwasher is blocking Agent 1 from moving by (-0.2436, 0.0000, -0.0562).",
-    "effects": null
-  },
-  "6": {
-    "state": "FAILED",
-    "error_message": "Can't place an object if Agent isn't holding anything",
+    "error_message": "InvalidOperationException: Closest point on NavMesh was too far from the agent:  (startPosition=(-1.258, 0.000, 1.959), closest navmesh position (-1.260, 0.002, 1.959)) and (targetPosition=(-1.250, 0.000, 2.250), closest navmesh position (-1.260, 0.002, 2.250)).. trace:   at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.SafelyComputeNavMeshPath (UnityEngine.Vector3 start, UnityEngine.Vector3 target, UnityEngine.AI.NavMeshPath path, System.Single allowedError) [0x001d7] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.ObjectNavExpertAction (ServerAction action) [0x00070] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at (wrapper managed-to-native) System.Reflection.MonoMethod.InternalInvoke(System.Reflection.MonoMethod,object,object[],System.Exception&)\n  at System.Reflection.MonoMethod.Invoke (System.Object obj, System.Reflection.BindingFlags invokeAttr, System.Reflection.Binder binder, System.Object[] parameters, System.Globalization.CultureInfo culture) [0x00032] in <695d1cc93cca45069c528c15c9fdd749>:0 ",
     "effects": null
   },
   "3": {
     "state": "FAILED",
-    "error_message": "a held item: Spoon_ea8b29ee with something if agent rotates Left 20 degrees",
+    "error_message": "Cabinet_aaf022cd is blocking Agent 4 from moving by (-0.2415, 0.0000, -0.0647).",
+    "effects": null
+  },
+  "5": {
+    "state": "FAILED",
+    "error_message": "InvalidOperationException: Closest point on NavMesh was too far from the agent:  (startPosition=(-2.750, 0.000, 3.250), closest navmesh position (-2.750, 0.002, 3.240)) and (targetPosition=(-1.250, 0.000, 2.500), closest navmesh position (-1.260, 0.002, 2.500)).. trace:   at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.SafelyComputeNavMeshPath (UnityEngine.Vector3 start, UnityEngine.Vector3 target, UnityEngine.AI.NavMeshPath path, System.Single allowedError) [0x001d7] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.ObjectNavExpertAction (ServerAction action) [0x00070] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at (wrapper managed-to-native) System.Reflection.MonoMethod.InternalInvoke(System.Reflection.MonoMethod,object,object[],System.Exception&)\n  at System.Reflection.MonoMethod.Invoke (System.Object obj, System.Reflection.BindingFlags invokeAttr, System.Reflection.Binder binder, System.Object[] parameters, System.Globalization.CultureInfo culture) [0x00032] in <695d1cc93cca45069c528c15c9fdd749>:0 ",
+    "effects": null
+  },
+  "6": {
+    "state": "FAILED",
+    "error_message": "InvalidOperationException: Closest point on NavMesh was too far from the agent:  (startPosition=(-1.247, 0.000, 2.791), closest navmesh position (-1.260, 0.002, 2.791)) and (targetPosition=(-1.250, 0.000, 3.000), closest navmesh position (-1.260, 0.002, 3.000)).. trace:   at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.SafelyComputeNavMeshPath (UnityEngine.Vector3 start, UnityEngine.Vector3 target, UnityEngine.AI.NavMeshPath path, System.Single allowedError) [0x001d7] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.ObjectNavExpertAction (ServerAction action) [0x00070] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at (wrapper managed-to-native) System.Reflection.MonoMethod.InternalInvoke(System.Reflection.MonoMethod,object,object[],System.Exception&)\n  at System.Reflection.MonoMethod.Invoke (System.Object obj, System.Reflection.BindingFlags invokeAttr, System.Reflection.Binder binder, System.Object[] parameters, System.Globalization.CultureInfo culture) [0x00032] in <695d1cc93cca45069c528c15c9fdd749>:0 ",
+    "effects": null
+  },
+  "7": {
+    "state": "FAILED",
+    "error_message": "InvalidOperationException: Closest point on NavMesh was too far from the agent:  (startPosition=(-2.750, 0.000, 3.250), closest navmesh position (-2.750, 0.002, 3.240)) and (targetPosition=(-1.250, 0.000, 2.750), closest navmesh position (-1.260, 0.002, 2.750)).. trace:   at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.SafelyComputeNavMeshPath (UnityEngine.Vector3 start, UnityEngine.Vector3 target, UnityEngine.AI.NavMeshPath path, System.Single allowedError) [0x001d7] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at UnityStandardAssets.Characters.FirstPerson.BaseFPSAgentController.ObjectNavExpertAction (ServerAction action) [0x00070] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at (wrapper managed-to-native) System.Reflection.MonoMethod.InternalInvoke(System.Reflection.MonoMethod,object,object[],System.Exception&)\n  at System.Reflection.MonoMethod.Invoke (System.Object obj, System.Reflection.BindingFlags invokeAttr, System.Reflection.Binder binder, System.Object[] parameters, System.Globalization.CultureInfo culture) [0x00032] in <695d1cc93cca45069c528c15c9fdd749>:0 ",
+    "effects": null
+  },
+  "2": {
+    "state": "FAILED",
+    "error_message": "BaseBoard is blocking Agent 4 from moving by (0.2497, 0.0000, 0.0129).",
+    "effects": null
+  },
+  "4": {
+    "state": "FAILED",
+    "error_message": "Agent 4 is blocking Agent 0 from moving by (0.2322, 0.0000, -0.0926).",
     "effects": null
   }
 }

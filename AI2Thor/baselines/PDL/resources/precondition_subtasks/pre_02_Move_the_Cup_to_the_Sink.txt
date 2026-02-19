@@ -1,0 +1,48 @@
+# Task Description: Move the Cup to the Sink.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at cup location
+#2. Robot not holding cup
+
+# SubTask 2: Move the Cup to the Sink.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: cup(Location=sink), sink(Location=floor)
+
+GoToObject(robot1, cup)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 cup)
+
+PickupObject(robot1, cup, sink)
+   Preconditions:
+     (at-location cup sink)
+     (at robot1 cup)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 cup)
+
+GoToObject(robot1, sink)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 sink)
+
+PutObject(robot1, cup, sink)
+   Preconditions:
+     (holding robot1 cup)
+     (at robot1 sink)
+     (not (inaction robot1))
+     (not (is-fridge sink))
+     (not (object-close robot1 sink))
+   Effects:
+     (at-location cup sink)
+     (not (holding robot1 cup))
+     (not (inaction robot1))
+
+Goal condition:
+(at-location cup sink)

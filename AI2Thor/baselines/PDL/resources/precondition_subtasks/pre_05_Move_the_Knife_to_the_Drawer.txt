@@ -1,0 +1,63 @@
+# Task Description: Move the Knife to the Drawer.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at knife location
+#2. Robot not holding knife
+
+# SubTask 5: Move the Knife to the Drawer. 
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: knife(Location=sink), drawer(Location=floor)
+
+GoToObject(robot1, knife)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 knife)
+
+PickupObject(robot1, knife, sink)
+   Preconditions:
+     (at-location knife sink)
+     (at robot1 knife)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 knife)
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+     (not (object-close robot1 drawer))
+
+PutObject(robot1, knife, drawer)
+   Preconditions:
+     (holding robot1 knife)
+     (at robot1 drawer)
+     (not (inaction robot1))
+     (not (object-close robot1 drawer))
+   Effects:
+     (at-location knife drawer)
+     (not (holding robot1 knife))
+
+CloseObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+     (object-open robot1 drawer)
+   Effects:
+     (object-close robot1 drawer)
+     (not (object-open robot1 drawer))
+
+Goal condition: 
+(at-location knife drawer)

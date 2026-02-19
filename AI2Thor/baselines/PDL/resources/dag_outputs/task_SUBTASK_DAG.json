@@ -3,137 +3,210 @@
   "nodes": [
     {
       "id": 1,
-      "name": "subtask_01_Put_the_Apple_in_the_Fridge",
+      "name": "subtask_01_Move_the_Bowl_to_the_CounterTop",
       "objects": [
-        "apple",
-        "fridge"
+        "robot1",
+        "bowl",
+        "countertop",
+        "diningtable"
       ],
       "preconds": [
-        "Robot is in the kitchen.",
-        "Apple is on the countertop.",
-        "Fridge is on the floor and closed.",
-        "Robot is not holding the apple."
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Bowl is on the dining table",
+        "Countertop is on the floor",
+        "Robot is not holding the bowl"
       ],
       "effects": [
-        "Apple is inside the fridge.",
-        "Fridge is closed.",
-        "Robot is not holding the apple."
+        "Bowl is on the countertop",
+        "Robot is not holding the bowl"
       ]
     },
     {
       "id": 2,
-      "name": "subtask_02_Put_the_Bread_in_the_Fridge",
+      "name": "subtask_02_Move_the_Cup_to_the_Sink",
       "objects": [
         "robot1",
-        "bread",
-        "fridge",
-        "countertop"
+        "cup",
+        "sink"
       ],
       "preconds": [
-        "Robot is not holding the bread.",
-        "Fridge is initially closed.",
-        "Bread is on the countertop."
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Cup is at the sink",
+        "Robot is not holding the cup"
       ],
       "effects": [
-        "Bread is placed inside the fridge.",
-        "Robot is not holding the bread.",
-        "Fridge is closed."
+        "Cup is at the sink",
+        "Robot is not holding the cup"
       ]
     },
     {
       "id": 3,
-      "name": "subtask_03_Put_the_Lettuce_in_the_Fridge",
+      "name": "subtask_03_Move_the_Fork_to_the_Drawer",
       "objects": [
         "robot1",
-        "lettuce",
-        "fridge",
-        "kitchen",
-        "countertop",
+        "fork",
+        "drawer",
+        "diningtable",
         "floor"
       ],
       "preconds": [
-        "Robot is in the kitchen.",
-        "Lettuce is on the countertop.",
-        "Fridge is on the floor and closed.",
-        "Robot is not holding the lettuce."
+        "Robot is not in action.",
+        "Robot is at the kitchen.",
+        "Fork is on the dining table.",
+        "Drawer is on the floor.",
+        "Robot is not holding the fork.",
+        "Robot is close to the drawer."
       ],
       "effects": [
-        "Lettuce is in the fridge.",
-        "Fridge is closed.",
-        "Robot is not holding the lettuce."
+        "Fork is in the drawer.",
+        "Robot is close to the drawer."
       ]
     },
     {
       "id": 4,
-      "name": "subtask_04_Put_the_Tomato_in_the_Fridge",
+      "name": "subtask_04_Move_the_Spoon_to_the_Drawer",
       "objects": [
         "robot1",
-        "tomato",
-        "fridge",
-        "countertop"
+        "spoon",
+        "drawer",
+        "diningtable",
+        "floor"
       ],
       "preconds": [
-        "Robot is not holding the tomato.",
-        "Fridge is initially closed.",
-        "Tomato is on the countertop."
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Spoon is on the dining table",
+        "Drawer is on the floor",
+        "Robot is not holding the spoon",
+        "Robot is close to the drawer"
       ],
       "effects": [
-        "Tomato is placed inside the fridge.",
-        "Robot is not holding the tomato.",
-        "Fridge is closed."
+        "Spoon is in the drawer",
+        "Robot is close to the drawer"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Move_the_Knife_to_the_Drawer",
+      "objects": [
+        "robot1",
+        "knife",
+        "drawer",
+        "sink",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is at the sink.",
+        "Knife is at the sink.",
+        "Drawer is on the floor.",
+        "Robot is not holding the knife.",
+        "Drawer is close to the robot."
+      ],
+      "effects": [
+        "Knife is in the drawer.",
+        "Drawer is close to the robot."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Move_the_Plate_to_the_Sink",
+      "objects": [
+        "robot1",
+        "plate",
+        "sink"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Plate is at the sink",
+        "Robot is not holding the plate"
+      ],
+      "effects": [
+        "Plate is at the sink",
+        "Robot is not holding the plate"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "subtask_07_Move_the_Mug_to_the_CoffeeMachine",
+      "objects": [
+        "robot1",
+        "mug",
+        "coffeemachine",
+        "diningtable",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Mug is on the dining table",
+        "Coffee machine is on the dining table",
+        "Robot is not holding the mug"
+      ],
+      "effects": [
+        "Mug is at the coffee machine",
+        "Robot is not holding the mug",
+        "Robot is not in action"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "subtask_08_Move_the_Pan_to_the_StoveBurner",
+      "objects": [
+        "robot1",
+        "pan",
+        "stoveburner",
+        "diningtable"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Pan is on the dining table",
+        "Stove burner is on the floor",
+        "Robot is not holding the pan"
+      ],
+      "effects": [
+        "Pan is on the stove burner",
+        "Robot is not holding the pan"
       ]
     }
   ],
   "edges": [
     {
-      "from_id": 1,
-      "to_id": 2,
-      "dependency_type": "resource",
-      "reason": "Fridge is a shared object"
-    },
-    {
-      "from_id": 1,
-      "to_id": 3,
-      "dependency_type": "resource",
-      "reason": "Fridge is a shared object"
-    },
-    {
-      "from_id": 1,
-      "to_id": 4,
-      "dependency_type": "resource",
-      "reason": "Fridge is a shared object"
-    },
-    {
-      "from_id": 2,
-      "to_id": 3,
-      "dependency_type": "resource",
-      "reason": "Fridge is a shared object"
-    },
-    {
-      "from_id": 2,
-      "to_id": 4,
-      "dependency_type": "resource",
-      "reason": "Fridge is a shared object"
-    },
-    {
       "from_id": 3,
       "to_id": 4,
       "dependency_type": "resource",
-      "reason": "Fridge is a shared object"
+      "reason": "Same drawer object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 3,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Same drawer object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Same drawer object - cannot be manipulated in parallel"
     }
   ],
   "parallel_groups": {
     "0": [
-      1
+      0,
+      1,
+      2,
+      6,
+      7,
+      8
     ],
     "1": [
-      2
-    ],
-    "2": [
-      3
-    ],
-    "3": [
-      4
+      3,
+      4,
+      5
     ]
   }
 }

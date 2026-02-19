@@ -1,0 +1,6 @@
+gotoobject robot1 knife (1)
+pickupobject robot1 knife sink (1)
+gotoobject robot1 drawer (1)
+openobject robot1 drawer (1)
+drophandobject robot1 knife drawer (1)
+closeobject robot1 drawer (1)

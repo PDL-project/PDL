@@ -18,7 +18,7 @@
      실패 시점/대체 로직부터 재계획. 이미 성공한 서브태스크는 유지.
 
 [Technical Requirements]
-- State Machine: PENDING -> RUNNING -> SUCCESS/FAILED (엄격).
+- State Machine: PENDING -> RUNNING -> SUCCESS/FAILED.
 - Context Isolation: 성공 데이터(Effects) 불변성 유지.
 - Recursive Decomposition: 재계획 시 분해 로직 재호출.
 - Concurrency: 병렬 그룹 간 데이터 경합 방지 (그룹별 비중첩 subtask ID + 저장 시 락).
@@ -467,26 +467,221 @@ def load_subtask_dag_parallel_groups(base_path: str, task_name: str = "task") ->
 
 
 def load_subtask_dag_effects(base_path: str, task_name: str = "task") -> Dict[int, List[str]]:
-    """서브태스크 DAG JSON에서 노드별 effects 로드. subtask_id -> [effect strings]. 로컬 피드백 시 성공 effects 반영용."""
+    """
+    서브태스크별 effects를 resources/precondition_subtasks/pre_0{task_number}_{task_name}.txt 파일에서 로드.
+    subtask_id -> [effect strings]. 로컬 피드백 시 성공 effects 반영용.
+
+    파일 형식 예시 (pre_01_Put_the_Apple_in_the_Fridge.txt):
+        Precondition: ...
+        Effect: (in apple fridge), (not (on apple countertop))
+    'Effect:' 또는 'Effects:' 로 시작하는 줄에서 개별 조건식을 파싱.
+    """
     resources = os.path.join(base_path, "resources")
-    dag_path = os.path.join(resources, "dag_outputs", f"{task_name}_SUBTASK_DAG.json")
-    if not os.path.exists(dag_path):
+    precond_dir = os.path.join(resources, "precondition_subtasks")
+    if not os.path.exists(precond_dir):
+        print(f"[FeedbackLoop] precondition_subtasks 폴더 없음: {precond_dir}")
         return {}
-    with open(dag_path, "r") as f:
-        data = json.load(f)
-    nodes = data.get("nodes", [])
+
     out: Dict[int, List[str]] = {}
-    for n in nodes:
-        sid = n.get("id")
-        if sid is None:
+    effect_pattern = re.compile(r"effects?\s*:", re.IGNORECASE)
+    paren_pattern = re.compile(r"\((?:[^()]*|\([^()]*\))*\)")  # 중첩 괄호 1단계
+
+    for fname in sorted(os.listdir(precond_dir)):
+        # 파일명 패턴: pre_0{task_number}_{task_name}.txt
+        m = re.match(r"pre_0*(\d+)[_\-](.+)\.txt$", fname, re.IGNORECASE)
+        if not m:
             continue
         try:
-            sid = int(sid)
-        except (TypeError, ValueError):
+            sid = int(m.group(1))
+        except ValueError:
             continue
-        eff = n.get("effects")
-        out[sid] = list(eff) if isinstance(eff, list) else []
+
+        fpath = os.path.join(precond_dir, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            print(f"[FeedbackLoop] effects 파일 읽기 실패 ({fname}): {e}")
+            continue
+
+        effects: List[str] = []
+        for line in content.splitlines():
+            if effect_pattern.match(line.strip()):
+                # 'Effect:' 이후 텍스트에서 괄호식 파싱
+                after_colon = line[line.index(":") + 1:]
+                found = paren_pattern.findall(after_colon)
+                effects.extend([e.strip() for e in found if e.strip()])
+        out[sid] = effects
+
     return out
+
+
+def build_local_env_for_group(
+    base_path: str,
+    group_subtask_ids: List[int],
+    floor_plan: int,
+    task_name: str = "task",
+) -> Dict[str, Any]:
+    """
+    그룹 내 서브태스크들의 로컬 환경 정보를 수집하여 반환.
+
+    수집 과정:
+    1. resources/subtask_pddl_problems/subtask_0{id}_{name}.pddl 에서 (:objects ...) 파싱
+    2. resources/dag_outputs/task_0_assignment.json 에서 서브태스크별 할당 로봇 번호 파싱
+    3. AI2Thor 컨트롤러로 해당 로봇들의 좌표와 오브젝트 상태 조회
+
+    반환값 (local_env dict):
+        {
+            "robot_positions": { robot_id: {"x":..,"y":..,"z":..} },
+            "object_states":   { object_name: { "position":..,"isOpen":..,"isPickedUp":..,"... } },
+            "subtask_objects": { subtask_id: [object_name, ...] },
+            "subtask_robots":  { subtask_id: robot_id },
+        }
+    """
+    import ai2thor.controller  # 필요 시 지연 임포트
+
+    resources = os.path.join(base_path, "resources")
+    problems_dir = os.path.join(resources, "subtask_pddl_problems")
+    assignment_path = os.path.join(resources, "dag_outputs", "task_0_assignment.json")
+
+    # ── 1. PDDL objects 파싱 ─────────────────────────────────────────────────
+    subtask_objects: Dict[int, List[str]] = {}
+    object_pattern = re.compile(r"\(:objects\s+(.*?)\)", re.DOTALL | re.IGNORECASE)
+    typed_entry_pattern = re.compile(r"([\w\s]+?)\s*-\s*\w+")
+
+    for sid in group_subtask_ids:
+        pddl_file = None
+        if os.path.exists(problems_dir):
+            prefix = f"subtask_{sid:02d}_"
+            for fname in os.listdir(problems_dir):
+                if fname.startswith(prefix) and fname.endswith(".pddl"):
+                    pddl_file = os.path.join(problems_dir, fname)
+                    break
+        if pddl_file is None:
+            subtask_objects[sid] = []
+            continue
+        try:
+            with open(pddl_file, "r", encoding="utf-8") as f:
+                pddl_content = f.read()
+            m = object_pattern.search(pddl_content)
+            if m:
+                objs_raw = m.group(1)
+                # "robot1 - robot apple - object ..." 형식 파싱
+                names: List[str] = []
+                for segment in objs_raw.split(")"):
+                    entry_m = typed_entry_pattern.search(segment + ")")
+                    if entry_m:
+                        names.extend(entry_m.group(1).split())
+                subtask_objects[sid] = [n.strip() for n in names if n.strip()]
+            else:
+                subtask_objects[sid] = []
+        except Exception as e:
+            print(f"[FeedbackLoop] PDDL 파싱 실패 (subtask {sid}): {e}")
+            subtask_objects[sid] = []
+
+    # ── 2. assignment.json에서 로봇 번호 파싱 ───────────────────────────────
+    subtask_robots: Dict[int, int] = {}
+    if os.path.exists(assignment_path):
+        try:
+            with open(assignment_path, "r", encoding="utf-8") as f:
+                assignment_data = json.load(f)
+            raw_assignment = assignment_data.get("assignment", {})
+            for sid in group_subtask_ids:
+                key = str(sid)
+                if key in raw_assignment:
+                    subtask_robots[sid] = int(raw_assignment[key])
+        except Exception as e:
+            print(f"[FeedbackLoop] assignment.json 파싱 실패: {e}")
+
+    robot_ids_in_group = list(set(subtask_robots.values()))
+    all_objects_in_group = list({obj for objs in subtask_objects.values() for obj in objs})
+
+    # ── 3. AI2Thor로 실제 환경 정보 수집 ────────────────────────────────────
+    robot_positions: Dict[int, Dict[str, float]] = {}
+    object_states: Dict[str, Dict[str, Any]] = {}
+
+    controller = None
+    try:
+        controller = ai2thor.controller.Controller(
+            scene=f"FloorPlan{floor_plan}",
+            agentCount=max(robot_ids_in_group) if robot_ids_in_group else 1,
+            gridSize=0.25,
+            snapToGrid=True,
+            renderDepthImage=False,
+            renderInstanceSegmentation=False,
+        )
+
+        # 로봇(에이전트) 위치
+        for rid in robot_ids_in_group:
+            agent_idx = rid - 1  # AI2Thor 에이전트 인덱스는 0-based
+            try:
+                pos = controller.last_event.events[agent_idx].metadata["agent"]["position"]
+                robot_positions[rid] = {"x": pos["x"], "y": pos["y"], "z": pos["z"]}
+            except (IndexError, KeyError) as e:
+                print(f"[FeedbackLoop] 로봇 {rid} 위치 조회 실패: {e}")
+
+        # 오브젝트 상태
+        all_thor_objects = controller.last_event.metadata.get("objects", [])
+        obj_name_lower = {obj.lower(): obj for obj in all_objects_in_group}
+        for thor_obj in all_thor_objects:
+            obj_type = thor_obj.get("objectType", "").lower()
+            obj_id = thor_obj.get("name", "").lower()
+            matched_name = obj_name_lower.get(obj_type) or obj_name_lower.get(obj_id)
+            if matched_name:
+                pos = thor_obj.get("position", {})
+                object_states[matched_name] = {
+                    "position": {"x": pos.get("x"), "y": pos.get("y"), "z": pos.get("z")},
+                    "isOpen": thor_obj.get("isOpen"),
+                    "isPickedUp": thor_obj.get("isPickedUp"),
+                    "isCooked": thor_obj.get("isCooked"),
+                    "isSliced": thor_obj.get("isSliced"),
+                    "parentReceptacles": thor_obj.get("parentReceptacles", []),
+                    "receptacleObjectIds": thor_obj.get("receptacleObjectIds", []),
+                    "objectType": thor_obj.get("objectType"),
+                }
+
+    except Exception as e:
+        print(f"[FeedbackLoop] AI2Thor 환경 조회 실패: {e}")
+    finally:
+        if controller is not None:
+            try:
+                controller.stop()
+            except Exception:
+                pass
+
+    local_env: Dict[str, Any] = {
+        "robot_positions": robot_positions,
+        "object_states": object_states,
+        "subtask_objects": {str(k): v for k, v in subtask_objects.items()},
+        "subtask_robots": {str(k): v for k, v in subtask_robots.items()},
+    }
+    return local_env
+
+
+def local_env_to_str(local_env: Dict[str, Any]) -> str:
+    """local_env dict를 LLM 프롬프트에 넣을 수 있는 문자열로 변환."""
+    lines = []
+    robot_positions = local_env.get("robot_positions", {})
+    if robot_positions:
+        lines.append("## Robot Positions")
+        for rid, pos in sorted(robot_positions.items(), key=lambda x: int(x[0])):
+            lines.append(f"  Robot {rid}: x={pos.get('x', '?'):.3f}, y={pos.get('y', '?'):.3f}, z={pos.get('z', '?'):.3f}")
+    object_states = local_env.get("object_states", {})
+    if object_states:
+        lines.append("## Object States")
+        for obj_name, state in sorted(object_states.items()):
+            pos = state.get("position", {})
+            attrs = []
+            if state.get("isOpen") is not None:
+                attrs.append(f"isOpen={state['isOpen']}")
+            if state.get("isPickedUp") is not None:
+                attrs.append(f"isPickedUp={state['isPickedUp']}")
+            parents = state.get("parentReceptacles") or []
+            if parents:
+                attrs.append(f"in={parents[0]}")
+            pos_str = f"({pos.get('x','?'):.2f},{pos.get('y','?'):.2f},{pos.get('z','?'):.2f})" if pos else "?"
+            lines.append(f"  {obj_name}: pos={pos_str}" + (f", {', '.join(attrs)}" if attrs else ""))
+    return "\n".join(lines) if lines else "(no local env data)"
 
 
 def format_success_effects_for_prompt(

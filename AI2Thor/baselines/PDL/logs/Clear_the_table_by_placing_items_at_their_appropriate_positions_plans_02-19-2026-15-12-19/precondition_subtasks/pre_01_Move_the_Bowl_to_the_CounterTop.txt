@@ -1,0 +1,47 @@
+# Task Description: Move the Bowl to the CounterTop.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not at any object location
+# 2. Robot not holding any object
+
+# SubTask 1: Move the Bowl to the CounterTop.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: bowl(Location=diningTable), counterTop(Location=floor)
+
+GoToObject(robot1, bowl)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 bowl)
+
+PickupObject(robot1, bowl, diningTable)
+   Preconditions:
+     (at-location bowl diningTable)
+     (at robot1 bowl)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 bowl)
+
+GoToObject(robot1, counterTop)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 counterTop)
+
+PutObject(robot1, bowl, counterTop)
+   Preconditions:
+     (holding robot1 bowl)
+     (at robot1 counterTop)
+     (not (inaction robot1))
+   Effects:
+     (at-location bowl counterTop)
+     (not (holding robot1 bowl))
+
+Goal condition:
+(at-location bowl counterTop)
+
+# Task Move the Bowl to the CounterTop is done.

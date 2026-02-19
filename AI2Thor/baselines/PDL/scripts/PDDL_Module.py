@@ -55,6 +55,8 @@ from FeedbackLoopModule import (
     SharedTaskStateStore,
     sync_execution_results_to_store,
     format_success_effects_for_prompt,
+    build_local_env_for_group,
+    local_env_to_str,
 )
 
 DEFAULT_MAX_TOKENS = 128
@@ -811,11 +813,68 @@ class TaskManager:
                     print("\n[Step 7] Running execution with feedback loop...")
                     task_name_fb = "task"
                     state_store = SharedTaskStateStore(self.base_path, task_name_fb)
+                    replan_retry_count = [0]
+
+                    def _on_subtask_failed(failed_result):
+                        """재계획 시도 후 새 플랜 로드 여부 반환."""
+                        if replan_retry_count[0] >= max_replan_retries:
+                            print(f"[Feedback] Max replan retries ({max_replan_retries}) reached, skipping replan")
+                            return False
+
+                        print(f"[Feedback] Immediate replan triggered by subtask {failed_result.subtask_id}")
+                        replan_retry_count[0] += 1
+
+                        current_results = dict(executor._subtask_results)
+                        dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
+                        effects_for_success = {
+                            sid: dag_effects.get(sid, [])
+                            for sid, r in current_results.items()
+                            if r.success and dag_effects
+                        }
+                        sync_execution_results_to_store(
+                            state_store, current_results, effects_by_subtask_id=effects_for_success
+                        )
+
+                        replan_result = self.run_feedback_replan(
+                            task_idx=task_idx,
+                            task_name=task_name_fb,
+                            execution_results=current_results,
+                            domain_content=domain_content,
+                            objects_ai=objects_ai,
+                            state_store=state_store,
+                            task_robot_ids=task_robot_ids,
+                            floor_plan=floor_plan,
+                        )
+
+                        if replan_result == "no_change":
+                            print("[Feedback] Replan: no_change")
+                            return False
+                        if replan_result == "full_replan_requested":
+                            print("[Feedback] Replan: full_replan_requested")
+                            self._validate_and_plan()
+                            self.generate_dag()
+                            executor.load_assignment(task_idx)
+                            executor.load_subtask_dag(task_name_fb)
+                            executor.load_plan_actions()
+                            return True
+                        if replan_result == "fully_replanned":
+                            print("[Feedback] Replan: fully_replanned")
+                            success = self.reload_executor_with_integrated_dag(
+                                executor=executor,
+                                task_idx=task_idx,
+                                task_name=task_name_fb
+                            )
+                            return bool(success)
+                        return False
+
                     for retry in range(max_replan_retries + 1):
                         results = executor.execute_in_ai2thor_with_feedback(
-                            floor_plan, task_name=task_name_fb, state_store=state_store
+                            floor_plan,
+                            task_name=task_name_fb,
+                            state_store=state_store,
+                            on_subtask_failed=_on_subtask_failed,  # ← 콜백 연결
                         )
-                        # 성공한 서브태스크의 effects를 DAG에서 로드해 스토어에 반영 (로컬 피드백 시 재계획에 사용)
+                        # 실행 완료 후 최종 상태 스토어 반영
                         dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
                         effects_for_success = {
                             sid: dag_effects.get(sid, [])
@@ -1666,11 +1725,26 @@ class TaskManager:
                 processed_groups.add(found_group)
                 subtask_ids_in_group = parallel_groups[found_group]
                 
-                # ReplanContext 구성
+                # ReplanContext 구성 - AI2Thor로 실제 로컬 환경 수집
+                if floor_plan is not None:
+                    try:
+                        raw_local_env = build_local_env_for_group(
+                            base_path=self.base_path,
+                            group_subtask_ids=subtask_ids_in_group,
+                            floor_plan=floor_plan,
+                            task_name=task_name,
+                        )
+                        local_env_str = local_env_to_str(raw_local_env)
+                    except Exception as _le:
+                        print(f"[Feedback] local_env 수집 실패 (group {found_group}): {_le}")
+                        local_env_str = "Kitchen environment with standard appliances"
+                else:
+                    local_env_str = "Kitchen environment with standard appliances"
+
                 context = partial_replanner.build_context_for_replan(
                     group_id=found_group,
                     subtask_ids_in_group=subtask_ids_in_group,
-                    local_env="Kitchen environment with standard appliances"
+                    local_env=local_env_str
                 )
                 
                 if context is None:
@@ -2480,7 +2554,7 @@ class TaskManager:
             # 4. Binding pairs 계산
             from LP_Module import binding_pairs_from_subtask_dag
             
-            # subtask_dag 객체 형태로 변환 (간단한 래퍼)
+            # subtask_dag 객체 형태로 변환
             class SubtaskDAGWrapper:
                 def __init__(self, dag_dict):
                     self.nodes = dag_dict["nodes"]
@@ -2492,7 +2566,7 @@ class TaskManager:
             
             print(f"  ✓ Computed {len(binding_pairs)} binding pairs")
             
-            # 5. 로봇/오브젝트 위치 가져오기 (거리 기반 최적화)
+            # 5. 로봇/오브젝트 위치 가져오기
             robot_positions = None
             object_positions = None
             
@@ -2522,8 +2596,7 @@ class TaskManager:
             for sid, rid in sorted(assignment.items()):
                 subtask_title = next((st["title"] for st in parsed_subtasks if st["id"] == sid), f"Subtask {sid}")
                 print(f"    Subtask {sid} ({subtask_title}) → Robot {rid}")
-            
-            # 할당 결과 저장
+
             assignment_output = {
                 "task_idx": task_idx,
                 "agent_count": len(task_robot_ids),
@@ -2720,7 +2793,9 @@ def main():
             print(f"\n----Test set tasks----\n{test_tasks}\nTotal: {len(test_tasks)} tasks\n")
 
             objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(floor_plan_num)}"
-            task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num)
+            task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num,
+                run_with_feedback=getattr(args, "run_with_feedback", False),
+                max_replan_retries=getattr(args, "max_replan_retries", 2))
 
             if args.log_results:
                 task_manager.log_results(

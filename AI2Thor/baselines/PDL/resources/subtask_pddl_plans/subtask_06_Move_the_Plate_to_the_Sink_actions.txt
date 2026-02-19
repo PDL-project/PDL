@@ -1,0 +1,4 @@
+gotoobject robot1 plate (1)
+pickupobject robot1 plate kitchen (1)
+gotoobject robot1 sink (1)
+drophandobject robot1 plate sink (1)
