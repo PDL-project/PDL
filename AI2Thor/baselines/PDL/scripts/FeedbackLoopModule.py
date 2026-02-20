@@ -3,8 +3,12 @@
 
 [Core Execution Logic]
 1. Grouping & Agent Assignment
-   - DAG에서 의존성 없이 병렬 실행 가능한 서브태스크들을 하나의 '그룹'으로 묶음.
-   - 그룹당 전담 에이전트(GroupAgent) 배정 → 실패 시 '로컬 피드백'.
+   ┌─ [병렬 실행 그룹] parallel_groups
+   │    - 의존성 없이 동시에 실행 가능한 Subtask들을 묶은 그룹.
+   │
+   └─ [LLM 에이전트 할당 그룹] dependency_groups
+        - 의존성 간선(edges)으로 연결된 Subtask들을 Union-Find로 묶은 Connected Component.
+        - GroupAgent는 이 dependency_group 당 하나씩 배정.
    - 실패는 중앙에서 감지(CentralFailureDetector).
 
 2. Real-time State Update
@@ -84,17 +88,37 @@ class SharedTaskStateStore:
         os.makedirs(dag_out, exist_ok=True)
         return os.path.join(dag_out, f"{self.task_name}_FEEDBACK_STATE.json")
 
-    def init_from_dag(self, parallel_groups: Dict[int, List[int]]) -> None:
-        """DAG parallel_groups로 모든 서브태스크를 PENDING으로 초기화."""
+    def init_from_dag(
+        self,
+        parallel_groups: Dict[int, List[int]],
+        dependency_groups: Optional[Dict[int, List[int]]] = None,
+    ) -> None:
+        """
+        DAG parallel_groups로 모든 서브태스크를 PENDING으로 초기화.
+
+        dependency_groups: LLM GroupAgent 할당용 그룹.
+            None이면 subtask_id -> dep_group_id 매핑을 저장하지 않음.
+            제공하면 각 subtask 레코드에 'dep_group_id' 필드가 추가됨.
+        """
+        # subtask_id -> dep_group_id 역매핑
+        dep_map: Dict[int, int] = {}
+        if dependency_groups:
+            for dgid, sids in dependency_groups.items():
+                for sid in sids:
+                    dep_map[sid] = dgid
+
         with self._lock:
             self._store.clear()
             for _gid, sids in parallel_groups.items():
                 for sid in sids:
-                    self._store[sid] = {
+                    rec: Dict[str, Any] = {
                         "state": SubtaskState.PENDING.value,
                         "error_message": None,
                         "effects": None,
                     }
+                    if dep_map:
+                        rec["dep_group_id"] = dep_map.get(sid)
+                    self._store[sid] = rec
             self._persist_locked()
 
     def update_subtask_on_completion(
@@ -218,12 +242,29 @@ class CentralFailureDetector:
     def get_failed_group_ids(
         self, parallel_groups: Dict[int, List[int]]
     ) -> List[int]:
-        """실패한 서브태스크가 속한 그룹 ID 목록 (중복 제거, 정렬)."""
+        """
+        [병렬 실행 스케줄용] 실패한 서브태스크가 속한 parallel_group ID 목록.
+        병렬 실행 재시도 범위 결정에만 사용.
+        """
         failed = set(self.store.get_failed_ids())
         group_ids = []
         for gid, sids in parallel_groups.items():
             if any(sid in failed for sid in sids):
                 group_ids.append(gid)
+        return sorted(group_ids)
+
+    def get_failed_dependency_group_ids(
+        self, dependency_groups: Dict[int, List[int]]
+    ) -> List[int]:
+        """
+        [LLM GroupAgent 할당용] 실패한 서브태스크가 속한 dependency_group ID 목록.
+        GroupAgent는 dependency_group 단위로 배정되므로, 실패 시 해당 dep_group 전담 GroupAgent에게 재계획을 맡긴다.
+        """
+        failed = set(self.store.get_failed_ids())
+        group_ids = []
+        for dgid, sids in dependency_groups.items():
+            if any(sid in failed for sid in sids):
+                group_ids.append(dgid)
         return sorted(group_ids)
 
 
@@ -343,15 +384,15 @@ class PartialReplanner:
 
     def build_context_for_replan(
         self,
-        group_id: int,
-        subtask_ids_in_group: List[int],
+        dep_group_id: int,
+        subtask_ids_in_dep_group: List[int],
         local_env: str,
     ) -> Optional[ReplanContext]:
         """
         재계획 주입 정보 구성.
         ① 로컬 환경, ② 성공 데이터(Effects, 불변), ③ 실패 분석, ④ 미수행 과제.
         """
-        success_ids, failed_ids, pending_ids = self.store.get_group_state(group_id, subtask_ids_in_group)
+        success_ids, failed_ids, pending_ids = self.store.get_group_state(dep_group_id, subtask_ids_in_dep_group)
         if not failed_ids:
             return None
         failed_id = failed_ids[0]
@@ -367,8 +408,8 @@ class PartialReplanner:
 
     def replan_group(
         self,
-        group_id: int,
-        subtask_ids_in_group: List[int],
+        dep_group_id: int,
+        subtask_ids_in_dep_group: List[int],
         context: ReplanContext,
         domain_content: str,
         problem_content_by_id: Dict[int, str],
@@ -376,14 +417,14 @@ class PartialReplanner:
         subtask_name_by_id: Dict[int, str],
     ) -> bool:
         """
-        그룹 내 실패 서브태스크에 대해 재계획 수행.
+        dependency_group 내 실패 서브태스크에 대해 재계획 수행.
         Recursive Decomposition: decomposition_callback이 있으면 먼저 호출해
         그룹을 다시 서브태스크로 분해한 뒤, 실패한 서브태스크부터 재계획.
         성공한 서브태스크 데이터는 절대 수정하지 않음.
         반환: True if at least one replan applied.
         """
         if self.decomposition_callback and context.remaining_pending_ids:
-            new_plans = self.decomposition_callback(group_id, subtask_ids_in_group, context)
+            new_plans = self.decomposition_callback(dep_group_id, subtask_ids_in_dep_group, context)
             if new_plans:
                 # 콜백이 새 계획을 반환하면 호출자가 파일/플랜 반영 담당 가능
                 pass
@@ -706,6 +747,64 @@ def subtask_has_dependency(subtask_id: int, edges: List[Tuple[int, int]]) -> boo
         if a == subtask_id or b == subtask_id:
             return True
     return False
+
+
+def build_dependency_groups(
+    all_subtask_ids: List[int],
+    edges: List[Tuple[int, int]],
+) -> Dict[int, List[int]]:
+    """
+    의존성 간선(edges)으로 연결된 서브태스크들을 Union-Find로 묶어
+    LLM GroupAgent 할당 기준 그룹을 생성.
+
+    반환: { dependency_group_id: [subtask_id, ...] }
+    """
+    parent: Dict[int, int] = {sid: sid for sid in all_subtask_ids}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]  # path compression
+            x = parent[x]
+        return x
+
+    def union(x: int, y: int) -> None:
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
+    for a, b in edges:
+        if a in parent and b in parent:
+            union(a, b)
+
+    # root별로 묶기
+    clusters: Dict[int, List[int]] = {}
+    for sid in all_subtask_ids:
+        root = find(sid)
+        clusters.setdefault(root, []).append(sid)
+
+    # 안정적인 순서로 group_id 재부여 (루트 ID 오름차순)
+    dep_groups: Dict[int, List[int]] = {}
+    for gid, (_, members) in enumerate(sorted(clusters.items(), key=lambda x: x[0])):
+        dep_groups[gid] = sorted(members)
+    return dep_groups
+
+
+def load_dependency_groups_from_dag(base_path: str, task_name: str = "task") -> Dict[int, List[int]]:
+    """
+    DAG JSON에서 nodes(전체 subtask_id 목록)와 edges(의존성)를 읽어
+    build_dependency_groups()로 LLM 에이전트 할당용 그룹을 반환.
+    """
+    resources = os.path.join(base_path, "resources")
+    dag_path = os.path.join(resources, "dag_outputs", f"{task_name}_SUBTASK_DAG.json")
+    if not os.path.exists(dag_path):
+        return {}
+    with open(dag_path, "r") as f:
+        data = json.load(f)
+
+    all_ids = [int(n["id"]) for n in data.get("nodes", []) if "id" in n]
+    edges_raw = data.get("edges", [])
+    edges = [(int(e["from_id"]), int(e["to_id"])) for e in edges_raw if "from_id" in e and "to_id" in e]
+    return build_dependency_groups(all_ids, edges)
 
 
 # ---------------------------------------------------------------------------

@@ -566,16 +566,12 @@ class DAGGenerator:
                     reason=d.get("reason", "")
                 ))
 
-            # parallel_groups가 없으면 causal만으로 레벨 계산해서 만들기
-            pg = {}
+            # LLM이 주는 parallel_groups는 edges와 모순될 수 있으므로 항상 edges 기반으로 재계산하여 일관성을 보장.
             raw_pg = data.get("parallel_groups")
             if isinstance(raw_pg, list) and raw_pg:
-                for gi, g in enumerate(raw_pg):
-                    pg[gi] = [int(x) for x in g]
-            else:
-                # causal + ordering을 스케줄 제약으로 사용 (실제 node ID 사용)
-                node_ids = [s.id for s in summaries]
-                pg = self._compute_subtask_parallel_groups(node_ids, edges)
+                print(f"[DAG] LLM-provided parallel_groups ignored; recomputing from edges for consistency.")
+            node_ids = [s.id for s in summaries]
+            pg = self._compute_subtask_parallel_groups(node_ids, edges)
 
             return SubtaskDAG(
                 task_name=task_name,
@@ -589,14 +585,14 @@ class DAGGenerator:
             return SubtaskDAG(task_name=task_name, nodes=summaries, edges=[], parallel_groups={0: [s.id for s in summaries]})
 
     def _compute_subtask_parallel_groups(self, node_ids: List[int], edges: List[SubtaskEdge]) -> Dict[int, List[int]]:
-        # causal/order만 순서 제약으로 사용
-        # node_ids는 실제 subtask ID 리스트 (1-based일 수 있음)
+        """
+        위상 정렬(Kahn's algorithm)로 병렬 실행 가능한 레벨(그룹)을 계산.
+        """
         id_set = set(node_ids)
         preds = {i: set() for i in node_ids}
         succs = {i: set() for i in node_ids}
 
         for e in edges:
-            # 모든 의존성 타입(causal, resource, binding, ordering)을 순서 제약으로 반영
             u, v = e.from_id, e.to_id
             if u in id_set and v in id_set:
                 preds[v].add(u)
@@ -606,14 +602,25 @@ class DAGGenerator:
         indeg = {i: len(preds[i]) for i in node_ids}
         level = {i: 0 for i in node_ids}
         q = deque([i for i in node_ids if indeg[i] == 0])
+        processed = set()
 
         while q:
             u = q.popleft()
+            processed.add(u)
             for v in succs[u]:
                 level[v] = max(level[v], level[u] + 1)
                 indeg[v] -= 1
                 if indeg[v] == 0:
                     q.append(v)
+
+        # 사이클에 갇혀 처리되지 못한 노드 복구
+        cycle_nodes = [i for i in node_ids if i not in processed]
+        if cycle_nodes:
+            print(f"[DAG] WARNING: Cycle detected among subtask(s) {cycle_nodes}. "
+                  f"Placing them after all resolved nodes.")
+            max_level = max(level[i] for i in processed) if processed else 0
+            for i in cycle_nodes:
+                level[i] = max_level + 1
 
         groups: Dict[int, List[int]] = {}
         for i in node_ids:

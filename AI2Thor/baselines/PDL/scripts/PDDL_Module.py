@@ -46,11 +46,11 @@ from FeedbackLoopModule import (
     load_subtask_dag_edges,
     load_subtask_dag_effects,
     load_subtask_dag_parallel_groups,
+    load_dependency_groups_from_dag,
     PartialReplanner,
     GroupAgent,
     subtask_has_dependency,
     SubtaskManagerLLM,
-    CentralLLM,
     run_planner_for_one_subtask,
     SharedTaskStateStore,
     sync_execution_results_to_store,
@@ -849,14 +849,6 @@ class TaskManager:
                         if replan_result == "no_change":
                             print("[Feedback] Replan: no_change")
                             return False
-                        if replan_result == "full_replan_requested":
-                            print("[Feedback] Replan: full_replan_requested")
-                            self._validate_and_plan()
-                            self.generate_dag()
-                            executor.load_assignment(task_idx)
-                            executor.load_subtask_dag(task_name_fb)
-                            executor.load_plan_actions()
-                            return True
                         if replan_result == "fully_replanned":
                             print("[Feedback] Replan: fully_replanned")
                             success = self.reload_executor_with_integrated_dag(
@@ -903,12 +895,6 @@ class TaskManager:
                         )
                         if replan_result == "no_change":
                             break
-                        if replan_result == "full_replan_requested":
-                            self._validate_and_plan()
-                            self.generate_dag()
-                            executor.load_assignment(task_idx)
-                            executor.load_subtask_dag(task_name_fb)
-                            executor.load_plan_actions()
                         elif replan_result == "fully_replanned":
                             success = self.reload_executor_with_integrated_dag(
                                 executor=executor,
@@ -1666,7 +1652,7 @@ class TaskManager:
         재계획: decomposition → DAG 통합 → LP 재할당 → 재실행 준비
         
         Returns:
-            "no_change" | "fully_replanned" | "full_replan_requested"
+            "no_change" | "fully_replanned"
         """
         failed = [sid for sid, r in execution_results.items() if not r.success]
         if not failed:
@@ -1674,6 +1660,9 @@ class TaskManager:
         
         edges = load_subtask_dag_edges(self.base_path, task_name)
         parallel_groups = load_subtask_dag_parallel_groups(self.base_path, task_name)
+        # dependency_groups: 의존성 간선으로 연결된 Subtask Connected Component
+        # → LLM GroupAgent 할당 기준
+        dependency_groups = load_dependency_groups_from_dag(self.base_path, task_name)
         
         # GroupAgent 생성
         group_agent = GroupAgent(self.llm, self.gpt_version)
@@ -1688,42 +1677,24 @@ class TaskManager:
             partial_replanner = None
         
         updated = False
-        need_full_replan = False
-        
-        # 의존성 체크
-        for sid in failed:
-            if subtask_has_dependency(sid, edges):
-                need_full_replan = True
-                break
-        
-        if need_full_replan:
-            central_llm = CentralLLM(self.llm, self.gpt_version)
-            strategy = central_llm.decide_replan_strategy(
-                failed_subtask_ids=failed,
-                edges=edges,
-                context="At least one failed subtask has dependencies on others.",
-            )
-            if strategy == "full_replan":
-                print("[Feedback] Central LLM decided: full_replan")
-                return "full_replan_requested"
-        
-        # 그룹별 재계획 (decomposition_callback 사용)
-        if partial_replanner is not None and parallel_groups:
+
+        # dependency_groups별 재계획
+        if partial_replanner is not None and dependency_groups:
             processed_groups = set()
             
             for failed_id in failed:
-                # 실패한 서브태스크가 속한 그룹 찾기
+                # 실패한 서브태스크가 속한 dependency_group 찾기
                 found_group = None
-                for gid, sids in parallel_groups.items():
+                for dgid, sids in dependency_groups.items():
                     if failed_id in sids:
-                        found_group = gid
+                        found_group = dgid
                         break
                 
                 if found_group is None or found_group in processed_groups:
                     continue
                 
                 processed_groups.add(found_group)
-                subtask_ids_in_group = parallel_groups[found_group]
+                subtask_ids_in_group = dependency_groups[found_group]
                 
                 # ReplanContext 구성 - AI2Thor로 실제 로컬 환경 수집
                 if floor_plan is not None:
@@ -1742,8 +1713,8 @@ class TaskManager:
                     local_env_str = "Kitchen environment with standard appliances"
 
                 context = partial_replanner.build_context_for_replan(
-                    group_id=found_group,
-                    subtask_ids_in_group=subtask_ids_in_group,
+                    dep_group_id=found_group,
+                    subtask_ids_in_dep_group=subtask_ids_in_group,
                     local_env=local_env_str
                 )
                 
@@ -1783,8 +1754,8 @@ class TaskManager:
                 
                 # 그룹 재계획
                 success = partial_replanner.replan_group(
-                    group_id=found_group,
-                    subtask_ids_in_group=subtask_ids_in_group,
+                    dep_group_id=found_group,
+                    subtask_ids_in_dep_group=subtask_ids_in_group,
                     context=context,
                     domain_content=domain_content_actual,
                     problem_content_by_id=problem_content_by_id,
@@ -1844,6 +1815,7 @@ class TaskManager:
             
             for sid in failed:
                 if subtask_has_dependency(sid, edges):
+                    print(f"[Feedback] Subtask {sid} has dependencies, skipping fallback replan (dependency_group replan should handle it)")
                     continue
                 result = execution_results.get(sid)
                 if not result or result.success:
@@ -2234,25 +2206,27 @@ class TaskManager:
             failed_ids = []
             
             for sid, rec in state_store._store.items():
+                sid_int = int(sid)
                 if rec.get("state") == "SUCCESS":
-                    success_ids.append(sid)
+                    success_ids.append(sid_int)
                 elif rec.get("state") == "FAILED":
-                    failed_ids.append(sid)
+                    failed_ids.append(sid_int)
             
             print(f"  Success subtasks: {success_ids}")
             print(f"  Failed subtasks: {failed_ids}")
             print(f"  Replanned subtasks: {replanned_subtask_ids}")
             
             # 성공한 서브테스크 노드 유지
+            success_ids_set = set(success_ids)
             success_nodes = [
                 n for n in original_dag["nodes"]
-                if n["id"] in success_ids
+                if int(n["id"]) in success_ids_set
             ]
             
             # 성공한 서브테스크 간 엣지만 유지
             success_edges = [
                 e for e in original_dag["edges"]
-                if e["from_id"] in success_ids and e["to_id"] in success_ids
+                if int(e["from_id"]) in success_ids_set and int(e["to_id"]) in success_ids_set
             ]
             
             print(f"  ✓ Kept {len(success_nodes)} success nodes, {len(success_edges)} edges")
@@ -2316,13 +2290,27 @@ class TaskManager:
                 print(f"    Subtask {sid}: {len(plan_actions)} actions")
             
             # 재계획된 서브테스크들에 대한 DAG 생성
+            if not new_summaries:
+                print("  ERROR: No summaries generated for replanned subtasks, aborting integration")
+                return False
             new_subtask_dag = dag_generator.build_subtask_dag(
                 task_name=f"{task_name}_replanned",
                 summaries=new_summaries
             )
             
-            new_nodes = new_subtask_dag.nodes
-            new_edges = new_subtask_dag.edges
+            # SubtaskSummary 객체를 dict 변환
+            from dataclasses import asdict
+            new_nodes = [
+                asdict(n) if hasattr(n, '__dataclass_fields__') else n
+                for n in new_subtask_dag.nodes
+            ]
+            new_edges = [
+                {"from_id": e.from_id, "to_id": e.to_id,
+                 "dependency_type": getattr(e, "dependency_type", "causal"),
+                 "reason": getattr(e, "reason", "")}
+                if hasattr(e, 'from_id') else e
+                for e in new_subtask_dag.edges
+            ]
             
             print(f"  ✓ Generated new DAG: {len(new_nodes)} nodes, {len(new_edges)} edges")
             
@@ -2339,16 +2327,19 @@ class TaskManager:
             # (의존성 분석: 성공 서브테스크 중 어떤 것이 재계획 서브테스크의 선행자인지)
             
             # 원래 DAG에서 실패/재계획 서브테스크들이 의존하던 선행자 찾기
+            replanned_ids_set = set(replanned_subtask_ids)
             for new_sid in replanned_subtask_ids:
                 # 원래 DAG에서 이 서브테스크로 들어오는 엣지 찾기
                 for orig_edge in original_dag["edges"]:
-                    if orig_edge["to_id"] == new_sid:
-                        predecessor_id = orig_edge["from_id"]
+                    if int(orig_edge["to_id"]) == new_sid:
+                        predecessor_id = int(orig_edge["from_id"])
                         # 선행자가 성공한 서브테스크라면 연결 유지
-                        if predecessor_id in success_ids:
+                        if predecessor_id in success_ids_set:
                             integrated_edges.append({
                                 "from_id": predecessor_id,
-                                "to_id": new_sid
+                                "to_id": new_sid,
+                                "dependency_type": orig_edge.get("dependency_type", "causal"),
+                                "reason": orig_edge.get("reason", ""),
                             })
                             print(f"    Reconnected: {predecessor_id} → {new_sid}")
             
@@ -2422,57 +2413,61 @@ class TaskManager:
         edges: List[Dict]
     ) -> Dict[int, List[int]]:
         """
-        노드와 엣지로부터 병렬 그룹 계산 (Topological Sort + Level-based Grouping)
-        
-        의존성이 없는 서브테스크들을 같은 그룹(레벨)으로 묶음
-        
+        노드와 엣지로부터 parallel_groups 계산 — 위상 정렬(Kahn's algorithm) 기반.
+
+        같은 레벨(level)에 속한 subtask들은 서로 의존성이 없으므로 병렬 실행 가능.
+        실행기는 레벨 순서대로 그룹을 발사하고, 같은 레벨 내에서는 스레드로 동시 실행.
+
+        [주의] Union-Find(Connected Component) 방식은 dependency_groups 계산용.
+               이 함수는 반드시 위상 정렬을 사용해야 한다.
+
         Args:
-            nodes: DAG 노드 리스트 (각 노드는 {"id": int, ...} 형태)
-            edges: DAG 엣지 리스트 (각 엣지는 {"from_id": int, "to_id": int} 형태)
-        
+            nodes: DAG 노드 리스트 ({"id": int, ...})
+            edges: DAG 엣지 리스트 ({"from_id": int, "to_id": int})
+
         Returns:
-            Dict[group_id, List[subtask_id]]: 병렬 그룹
+            Dict[level, List[subtask_id]]: 레벨별 병렬 그룹
         """
         if not nodes:
             return {}
-        
-        # 각 노드의 선행자(predecessors) 계산
-        node_ids = {n["id"] for n in nodes}
-        predecessors = {nid: set() for nid in node_ids}
-        
+
+        node_ids = [n["id"] for n in nodes]
+        id_set = set(node_ids)
+
+        preds: Dict[int, set] = {i: set() for i in node_ids}
+        succs: Dict[int, set] = {i: set() for i in node_ids}
         for e in edges:
-            from_id = e["from_id"]
-            to_id = e["to_id"]
-            if to_id in predecessors:
-                predecessors[to_id].add(from_id)
-        
-        # Topological sort + 레벨별 그룹화
-        groups = {}
-        visited = set()
-        level = 0
-        
-        while len(visited) < len(node_ids):
-            current_level_nodes = []
-            
-            for nid in node_ids:
-                if nid in visited:
-                    continue
-                
-                # 모든 선행자가 처리되었으면 현재 레벨에 추가
-                if predecessors[nid].issubset(visited):
-                    current_level_nodes.append(nid)
-            
-            if current_level_nodes:
-                groups[level] = sorted(current_level_nodes)
-                visited.update(current_level_nodes)
-                level += 1
-            else:
-                # 순환 의존성이 있는 경우 (남은 노드들 강제 추가)
-                remaining = list(node_ids - visited)
-                if remaining:
-                    groups[level] = sorted(remaining)
-                    break
-        
+            u, v = e["from_id"], e["to_id"]
+            if u in id_set and v in id_set:
+                preds[v].add(u)
+                succs[u].add(v)
+
+        from collections import deque
+        indeg = {i: len(preds[i]) for i in node_ids}
+        level = {i: 0 for i in node_ids}
+        q = deque([i for i in node_ids if indeg[i] == 0])
+        processed: set = set()
+
+        while q:
+            u = q.popleft()
+            processed.add(u)
+            for v in succs[u]:
+                level[v] = max(level[v], level[u] + 1)
+                indeg[v] -= 1
+                if indeg[v] == 0:
+                    q.append(v)
+
+        # 사이클 감지 후 누락 노드 복구
+        cycle_nodes = [i for i in node_ids if i not in processed]
+        if cycle_nodes:
+            print(f"[DAG] WARNING: Cycle detected {cycle_nodes}, placing at max_level+1")
+            max_level = max(level[i] for i in processed) if processed else 0
+            for i in cycle_nodes:
+                level[i] = max_level + 1
+
+        groups: Dict[int, List[int]] = {}
+        for i in node_ids:
+            groups.setdefault(level[i], []).append(i)
         return groups
 
 
@@ -2596,7 +2591,7 @@ class TaskManager:
             for sid, rid in sorted(assignment.items()):
                 subtask_title = next((st["title"] for st in parsed_subtasks if st["id"] == sid), f"Subtask {sid}")
                 print(f"    Subtask {sid} ({subtask_title}) → Robot {rid}")
-
+            
             assignment_output = {
                 "task_idx": task_idx,
                 "agent_count": len(task_robot_ids),

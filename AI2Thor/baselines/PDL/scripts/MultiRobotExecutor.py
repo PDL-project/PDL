@@ -15,6 +15,10 @@ import shutil
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from collections import defaultdict, deque
+from FeedbackLoopModule import (
+    load_dependency_groups_from_dag,
+    build_dependency_groups,
+)
 from glob import glob
 from pathlib import Path
 import sys
@@ -548,12 +552,16 @@ class MultiRobotExecutor:
                         # (C) None이면 아무것도 안 함
 
                         # blocking 감지: errorMessage에 "blocking"이 있으면 회피 유도
+                        # 단, 해당 subtask가 이미 실패했으면 MoveBack 생략 (큐 stuck 방지)
                         try:
                             err = multi_agent_event.events[aid].metadata.get("errorMessage", "") or ""
-                            if "blocking" in err.lower():
+                            _blk_sid = act.get("subtask_id")
+                            _already_failed = _blk_sid is not None and self._subtask_failed.get(_blk_sid, False)
+                            if "blocking" in err.lower() and not _already_failed:
                                 self._enqueue_action({
                                     'action': 'MoveBack',
-                                    'agent_id': aid
+                                    'agent_id': aid,
+                                    'subtask_id': _blk_sid,
                                 }, front=True)
                         except Exception:
                             pass
@@ -2309,10 +2317,14 @@ class MultiRobotExecutor:
         self._subtask_last_error = {}
 
         if state_store is not None:
-            state_store.init_from_dag(self.parallel_groups)
+            # dependency_groups: 의존성으로 연결된 Subtask 클러스터 (LLM GroupAgent 할당 기준)
+            dep_groups = load_dependency_groups_from_dag(self.base_path, task_name)
+            state_store.init_from_dag(self.parallel_groups, dependency_groups=dep_groups)
             self._feedback_state_store = state_store
+            self._dependency_groups = dep_groups
         else:
             self._feedback_state_store = None
+            self._dependency_groups = {}
 
         agent_count = max(self.assignment.values()) if self.assignment else 1
         self.start_ai2thor(floor_plan=floor_plan, agent_count=agent_count)
