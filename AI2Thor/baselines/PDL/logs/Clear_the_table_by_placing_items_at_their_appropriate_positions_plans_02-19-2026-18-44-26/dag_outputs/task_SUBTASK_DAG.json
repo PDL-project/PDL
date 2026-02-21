@@ -1,0 +1,224 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Place_the_Bowl_into_the_Cabinet",
+      "objects": [
+        "robot1",
+        "bowl",
+        "cabinet1",
+        "diningtable",
+        "floor",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Bowl is on the dining table.",
+        "Cabinet is on the floor.",
+        "Robot is close to the cabinet.",
+        "Robot is not holding the bowl."
+      ],
+      "effects": [
+        "Bowl is placed in the cabinet.",
+        "Robot is close to the cabinet."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Place_the_Bread_into_the_Cabinet",
+      "objects": [
+        "robot1",
+        "bread",
+        "cabinet1",
+        "diningtable",
+        "floor",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Bread is on the dining table.",
+        "Cabinet is on the floor.",
+        "Robot is close to the cabinet.",
+        "Robot is not holding the bread."
+      ],
+      "effects": [
+        "Bread is placed inside the cabinet.",
+        "Robot is close to the cabinet."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Place_the_Fork_into_the_Drawer",
+      "objects": [
+        "robot1",
+        "fork",
+        "drawer1",
+        "diningtable",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Fork is on the dining table",
+        "Drawer is on the floor",
+        "Robot is close to the drawer",
+        "Robot is not holding the fork"
+      ],
+      "effects": [
+        "Fork is placed in the drawer",
+        "Robot is close to the drawer"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Place_the_Spoon_into_the_Drawer",
+      "objects": [
+        "robot1",
+        "spoon",
+        "drawer1",
+        "diningtable",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is at the kitchen.",
+        "Spoon is on the dining table.",
+        "Drawer is on the floor.",
+        "Robot is close to the drawer.",
+        "Robot is not holding the spoon."
+      ],
+      "effects": [
+        "Spoon is placed in the drawer.",
+        "Robot is close to the drawer."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Place_the_Mug_into_the_Cabinet",
+      "objects": [
+        "robot1",
+        "mug",
+        "cabinet1",
+        "diningtable",
+        "floor",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is in the kitchen.",
+        "Mug is on the dining table.",
+        "Cabinet is on the floor.",
+        "Robot is not holding the mug.",
+        "Cabinet is closed."
+      ],
+      "effects": [
+        "Mug is placed inside the cabinet.",
+        "Cabinet is closed.",
+        "Robot is not holding the mug."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Place_the_Pan_into_the_Cabinet",
+      "objects": [
+        "robot1",
+        "pan",
+        "cabinet1",
+        "diningtable",
+        "floor",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Pan is on the dining table.",
+        "Cabinet is on the floor.",
+        "Robot is close to the cabinet.",
+        "Robot is not holding the pan."
+      ],
+      "effects": [
+        "Pan is placed inside the cabinet.",
+        "Robot is close to the cabinet."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "subtask_07_Place_the_Tomato_into_the_Fridge",
+      "objects": [
+        "tomato",
+        "fridge",
+        "diningtable",
+        "robot1"
+      ],
+      "preconds": [
+        "Robot is not holding the tomato.",
+        "Fridge is initially closed.",
+        "Tomato is on the dining table."
+      ],
+      "effects": [
+        "Tomato is placed inside the fridge.",
+        "Robot is not holding the tomato.",
+        "Fridge is closed."
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Both subtasks involve placing items in the same cabinet"
+    },
+    {
+      "from_id": 2,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Both subtasks involve placing items in the same cabinet"
+    },
+    {
+      "from_id": 5,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Both subtasks involve placing items in the same cabinet"
+    },
+    {
+      "from_id": 1,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Both subtasks involve placing items in the same cabinet"
+    },
+    {
+      "from_id": 2,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Both subtasks involve placing items in the same cabinet"
+    },
+    {
+      "from_id": 3,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Both subtasks involve placing items in the same drawer"
+    },
+    {
+      "from_id": 5,
+      "to_id": 7,
+      "dependency_type": "resource",
+      "reason": "Both subtasks involve closing the fridge and cabinet"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "1": [
+      5,
+      6,
+      7
+    ]
+  }
+}

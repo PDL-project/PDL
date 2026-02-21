@@ -1,0 +1,66 @@
+# Task Description: Place the Mug into the Cabinet.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at mug location
+#2. Robot not holding mug
+#3. Cabinet is initially closed
+
+# SubTask 5: Place the Mug into the Cabinet.
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: Mug(Location=DiningTable), Cabinet(Location=Floor)
+
+GoToObject(robot1, Mug)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Mug)
+
+PickupObject(robot1, Mug, DiningTable)
+   Preconditions:
+     (at-location Mug DiningTable)
+     (at robot1 Mug)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Mug)
+
+GoToObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Cabinet)
+
+OpenObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Cabinet)
+   Effects:
+     (object-open robot1 Cabinet)
+     (not (object-close robot1 Cabinet))
+
+PutObject(robot1, Mug, Cabinet)
+   Preconditions:
+     (holding robot1 Mug)
+     (at robot1 Cabinet)
+     (not (inaction robot1))
+     (not (object-close robot1 Cabinet))
+   Effects:
+     (at-location Mug Cabinet)
+     (not (holding robot1 Mug))
+
+CloseObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Cabinet)
+     (object-open robot1 Cabinet)
+   Effects:
+     (object-close robot1 Cabinet)
+     (not (object-open robot1 Cabinet))
+
+Goal condition:
+(at-location Mug Cabinet)
+
+# Task Place the Mug into the Cabinet is done.

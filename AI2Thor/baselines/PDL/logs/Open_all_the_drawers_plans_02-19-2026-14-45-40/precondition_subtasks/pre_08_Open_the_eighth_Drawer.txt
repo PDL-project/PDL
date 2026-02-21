@@ -1,0 +1,31 @@
+# Task Description: Open the eighth Drawer.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at drawer location
+
+# SubTask 8: Open the eighth Drawer.
+    Skills Required: GoToObject, OpenObject
+    Related Objects: drawer(Location=floor, position={'x': -1.5604000091552734, 'y': 0.3310000002384186, 'z': -0.19699999690055847})
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+     (not (object-close robot1 drawer))
+
+Goal condition:
+(object-open robot1 drawer)
+
+# Task Open the eighth Drawer is done.

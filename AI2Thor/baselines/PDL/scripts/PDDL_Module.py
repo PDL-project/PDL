@@ -39,7 +39,8 @@ import robots  # resources/robots.py (로봇 스킬/질량 정보 등)
 from DAG_Module import DAGGenerator # plan 기반 DAG(병렬성) 생성 모듈
 from LP_Module import assign_subtasks_cp_sat, binding_pairs_from_subtask_dag # 작업할당(CP-SAT) 및 DAG 바인딩 추출
 
-from MultiRobotExecutor import MultiRobotExecutor, SubTaskExecutionResult # 멀티 로봇 실행 코드 생성/실행 관리
+from MultiRobotExecutor import MultiRobotExecutor, SubTaskExecutionResult, _TASK_NAME_MAP, _TASK_NAME_MAP_LOWER # 멀티 로봇 실행 코드 생성/실행 관리
+from AI2Thor.Tasks.get_scene_init import get_scene_initializer  # preinit용
 from auto_config import AutoConfig # config 로딩/세팅 자동화
 
 from FeedbackLoopModule import (
@@ -109,9 +110,10 @@ class PDDLUtils:
         return [{'name': obj, 'mass': mass} for obj, mass in zip(objs, obj_mass)]
     
     @staticmethod
-    def get_ai2_thor_objects(floor_plan: int) -> List[Dict[str, Any]]:
+    def get_ai2_thor_objects(floor_plan: int, task_description: str = None) -> List[Dict[str, Any]]:
         """
         입력 : floor_plan -> 15, 201 같은 데이터셋 숫자
+               task_description -> 자연어 태스크 설명 (있으면 preinit 실행 후 객체 정보를 읽음)
 
         출력 : objects_ai가 될 형식임
         [
@@ -119,11 +121,28 @@ class PDDLUtils:
             {'name': 'Knife', 'mass': 0.5},
             {'name': 'Fridge', 'mass': 50.0},
             ...
-        ] 
+        ]
         """
         controller = None
+        scene_name = f"FloorPlan{floor_plan}"
         try:
-            controller = ai2thor.controller.Controller(scene=f"FloorPlan{floor_plan}")
+            controller = ai2thor.controller.Controller(scene=scene_name)
+
+            # task_description이 주어지면 preinit을 실행하여 객체 배치를 태스크 초기 상태로 변경
+            if task_description:
+                task_folder = _TASK_NAME_MAP.get(task_description) \
+                              or _TASK_NAME_MAP_LOWER.get(task_description.lower().strip())
+                if task_folder:
+                    try:
+                        scene_initializer, _ = get_scene_initializer(task_folder, scene_name)
+                        if scene_initializer is not None:
+                            controller.last_event = scene_initializer.SceneInitializer().preinit(
+                                controller.last_event, controller
+                            )
+                            print(f"[get_ai2_thor_objects] preinit 실행 완료: {task_folder}/{scene_name}")
+                    except Exception as e:
+                        print(f"[get_ai2_thor_objects] preinit 실행 실패 (무시하고 계속): {e}")
+
             objects_ai = []
 
             # 마지막 이벤트의 metadata에서 objects 목록을 순회
@@ -691,20 +710,20 @@ class TaskManager:
                 decomposed_plan = self._generate_decomposed_plan(task, domain_content, self.available_robot_skills, objects_ai)
                 self.decomposed_plan.append(decomposed_plan)
                 
-                print("✓ Decomposed plan generated")
-                print("decomposed plan:\n", decomposed_plan)
-                print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+                #print("✓ Decomposed plan generated")
+                #print("decomposed plan:\n", decomposed_plan)
+                #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
                 
                 parsed_subtasks = self._decomposed_plan_to_subtasks(decomposed_plan) #분리
-                print("✓ Parsed Decomposed Plan generated")
-                print("parsed decomposed plan:\n", parsed_subtasks)
-                print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+                #print("✓ Parsed Decomposed Plan generated")
+                #print("parsed decomposed plan:\n", parsed_subtasks)
+                #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
                 precondition_subtasks = self._generate_precondition_subtasks(parsed_subtasks, domain_content, self.available_robot_skills, objects_ai)
                 self.precondition_subtasks.append(precondition_subtasks) 
-                print("✓ Precondition Decomposed Plan generated")
-                print("Precondition Decomposed Plan:\n", precondition_subtasks)
-                print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+                #print("✓ Precondition Decomposed Plan generated")
+                #print("Precondition Decomposed Plan:\n", precondition_subtasks)
+                #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
                 for item in precondition_subtasks:
                     sid = item.get("subtask_id", -1)
@@ -721,9 +740,9 @@ class TaskManager:
                 subtask_pddl_problems = self._generate_subtask_pddl_problems(precondition_subtasks, domain_content, self.available_robot_skills, objects_ai)
                 self.subtask_pddl_problems.append(subtask_pddl_problems)
 
-                print("✓ PDDL problems generated")
-                print("PDDL problems plan:\n", subtask_pddl_problems)
-                print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+                #print("✓ PDDL problems generated")
+                #print("PDDL problems plan:\n", subtask_pddl_problems)
+                #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
                 for item in subtask_pddl_problems:
                     sid = item["subtask_id"]
@@ -890,7 +909,7 @@ class TaskManager:
 
     def _generate_decomposed_plan(self, task: str, domain_content: str, robots: List[dict], objects_ai: str) -> str:
         """하나의 자연어 task를 subtask로 나누는 함수"""
-        prompt = "" 
+        prompt = ""
         try:
             # decomposition prompt file 불러오기
             #decompose_prompt_path = os.path.join(self.base_path, "data", "pythonic_plans", f"{self.prompt_decompse_set}.py")
@@ -900,7 +919,6 @@ class TaskManager:
             #Construct the prompt incrementally like the original
             #prompt = f"from pddl domain file with all possible AVAILABLE ROBOT SKILLS: \n{domain_content}\n\n"
 
-            
             prompt += "The following list is the ONLY set of objects that exist in the current environment.\n"
             prompt += "When writing subtasks and actions, you MUST ground every referenced object to this list.\n"
             prompt += "If the task mentions something not present, solve it using the closest available objects from the list.\n"
@@ -1447,6 +1465,7 @@ class TaskManager:
                     "- Include (object-close robot1 <receptacle>) in :init (they start CLOSED)\n"
                     "- PutObject requires (not (object-close ?r ?loc)), so planner MUST OpenObject first\n"
                     "- If placing into them, :goal should include (object-close robot1 <receptacle>)\n"
+                    "- If the subtask is ONLY about opening, the goal should include (object-open) but NOT (object-close)"
                     "NON-OPENABLE objects (CounterTop, StoveBurner, CoffeeMachine, DiningTable, Shelf, SinkBasin, Plate, Bed, Sofa, Desk, GarbageCan, Bathtub):\n"
                     "- Do NOT include (object-close) for these. PutObject works directly.\n"
                     "FRIDGE: use (is-fridge fridge) and (not (fridge-open fridge)) in :init.\n\n"
@@ -1563,8 +1582,8 @@ class TaskManager:
                     print(f"\n========== FAST-DOWNWARD OUTPUT ({problem_file}) ==========")
                     print(plan_actions)
                     print("===========================================================\n")
-                    print(result.stdout)
-                    print("===========================================================\n")
+                    #print(result.stdout)
+                    #print("===========================================================\n")
 
 
                     if result.stderr:
@@ -2719,7 +2738,8 @@ def main():
 
             print(f"\n----Test set tasks----\n{test_tasks}\nTotal: {len(test_tasks)} tasks\n")
 
-            objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(floor_plan_num)}"
+            objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(floor_plan_num, task_description=task_str)}"
+
             task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num)
 
             if args.log_results:
@@ -2739,7 +2759,7 @@ def main():
             
             print(f"\n----Test set tasks----\n{test_tasks}\nTotal: {len(test_tasks)} tasks\n")
             
-            objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(args.floor_plan)}"
+            objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(args.floor_plan, task_description=test_tasks[0] if test_tasks else None)}"
             task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=args.floor_plan,
                 run_with_feedback=getattr(args, "run_with_feedback", False),
                 max_replan_retries=getattr(args, "max_replan_retries", 2))

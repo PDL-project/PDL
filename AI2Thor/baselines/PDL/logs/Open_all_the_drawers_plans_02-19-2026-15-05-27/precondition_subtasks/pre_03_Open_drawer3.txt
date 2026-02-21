@@ -1,0 +1,20 @@
+# SubTask 3: Open drawer3.
+    Skills Required: GoToObject, OpenObject
+    Related Objects: drawer3(Location=floor)
+
+GoToObject(robot1, drawer3)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer3)
+
+OpenObject(robot1, drawer3)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer3)
+   Effects:
+     (object-open robot1 drawer3)
+     (not (object-close robot1 drawer3))
+
+Goal condition:
+(object-open robot1 drawer3)

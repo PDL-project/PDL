@@ -1,0 +1,236 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Open_fridge1",
+      "objects": [
+        "robot1",
+        "fridge1",
+        "floor",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Fridge is on the floor",
+        "Fridge is closed"
+      ],
+      "effects": [
+        "Robot is at the fridge",
+        "Fridge is open"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Put_apple1_into_fridge1",
+      "objects": [
+        "apple1",
+        "fridge1",
+        "robot1",
+        "kitchen",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Apple is on the countertop",
+        "Fridge is on the floor",
+        "Fridge is closed",
+        "Robot is not holding the apple"
+      ],
+      "effects": [
+        "Apple is in the fridge",
+        "Robot is not holding the apple"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Put_bread1_into_fridge1",
+      "objects": [
+        "robot1",
+        "bread1",
+        "fridge1",
+        "kitchen",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Bread is on the countertop.",
+        "Fridge is on the floor.",
+        "Fridge is closed.",
+        "Robot is not holding the bread."
+      ],
+      "effects": [
+        "Bread is in the fridge.",
+        "Robot is not holding the bread."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Put_lettuce1_into_fridge1",
+      "objects": [
+        "robot1",
+        "lettuce1",
+        "fridge1",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Lettuce is on the countertop.",
+        "Fridge is on the floor.",
+        "Fridge is closed.",
+        "Robot is not holding the lettuce."
+      ],
+      "effects": [
+        "Lettuce is in the fridge.",
+        "Robot is not holding the lettuce."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Put_tomato1_into_fridge1",
+      "objects": [
+        "robot1",
+        "tomato1",
+        "fridge1",
+        "kitchen",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is at the kitchen.",
+        "Tomato is on the countertop.",
+        "Fridge is on the floor and closed.",
+        "Robot is not holding the tomato."
+      ],
+      "effects": [
+        "Tomato is inside the fridge.",
+        "Robot is not holding the tomato."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Close_fridge1",
+      "objects": [
+        "robot1",
+        "fridge1"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the fridge location",
+        "Fridge is open"
+      ],
+      "effects": [
+        "Fridge is closed",
+        "Robot is at the fridge location"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to put apple in"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to put bread in"
+    },
+    {
+      "from_id": 1,
+      "to_id": 4,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to put lettuce in"
+    },
+    {
+      "from_id": 1,
+      "to_id": 5,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to put tomato in"
+    },
+    {
+      "from_id": 2,
+      "to_id": 6,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to close it"
+    },
+    {
+      "from_id": 3,
+      "to_id": 6,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to close it"
+    },
+    {
+      "from_id": 4,
+      "to_id": 6,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to close it"
+    },
+    {
+      "from_id": 5,
+      "to_id": 6,
+      "dependency_type": "causal",
+      "reason": "Fridge must be open to close it"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Shared fridge object"
+    },
+    {
+      "from_id": 2,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared fridge object"
+    },
+    {
+      "from_id": 2,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Shared fridge object"
+    },
+    {
+      "from_id": 3,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared fridge object"
+    },
+    {
+      "from_id": 3,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Shared fridge object"
+    },
+    {
+      "from_id": 4,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Shared fridge object"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "2": [
+      6
+    ]
+  }
+}

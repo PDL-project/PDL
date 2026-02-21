@@ -714,7 +714,13 @@ class MultiRobotExecutor:
                         multi_agent_event = c.step(action="Done")
                     
                     # 피드백 루프: 서브태스크별 실패 기록
-                    if multi_agent_event is not None and multi_agent_event.metadata.get("errorMessage"):
+                    # 네비게이션 액션(ObjectNavExpertAction, MoveBack, MoveAhead, Rotate*)의 에러는 무시
+                    # 실제 목표 액션(Open/Close/Pickup/Put/Toggle/Slice 등)의 실패만 기록
+                    _NAV_ACTIONS = {"ObjectNavExpertAction", "MoveBack", "MoveAhead",
+                                    "RotateLeft", "RotateRight", "LookUp", "LookDown", "Teleport"}
+                    if (multi_agent_event is not None
+                            and multi_agent_event.metadata.get("errorMessage")
+                            and act.get("action") not in _NAV_ACTIONS):
                         sid = act.get("subtask_id")
                         if sid is not None:
                             self._subtask_failed[sid] = True
@@ -763,13 +769,146 @@ class MultiRobotExecutor:
     # -----------------------------
     # High-level Actions(로봇 동작 제어)
     # -----------------------------
-    def _find_object_id(self, obj_pattern: str) -> Optional[str]:
-        """객체 이름(예: "Apple")을 기반으로 시뮬레이션 내의 고유 ID 찾는 함수"""
-        objs = [obj["objectId"] for obj in self.controller.last_event.metadata["objects"]]
+    def _object_matches_pattern(self, obj: dict, pattern: str) -> bool:
+        """
+        Pattern matcher shared by all object-resolution paths.
+        Supports:
+        - exact objectId / objectType match (case-insensitive)
+        - numbered name patterns: "drawer1" → 1st Drawer in object_dict
+        - regex compatibility with legacy plans
+        """
+        object_id = str(obj.get("objectId", ""))
+        object_type = str(obj.get("objectType", ""))
+        p = (pattern or "").strip()
+        if not p:
+            return False
+
+        p_low = p.lower()
+        if object_id.lower() == p_low or object_type.lower() == p_low:
+            return True
+
+        # numbered name pattern: e.g. "drawer1" → type="Drawer", num=1
+        m = re.match(r'^([a-zA-Z]+?)(\d+)$', p)
+        if m and hasattr(self, 'object_dict'):
+            base_type = m.group(1).capitalize()
+            target_num = int(m.group(2))
+            if base_type in self.object_dict:
+                # object_dict[base_type] = { obj_id_suffix: number, ... }
+                obj_name, obj_id_suffix = self._parse_object(object_id)
+                if obj_name == base_type and obj_id_suffix in self.object_dict[base_type]:
+                    if self.object_dict[base_type][obj_id_suffix] == target_num:
+                        return True
+
+        # fallback: "drawer (1)" style from PDDL action strings
+        m2 = re.match(r'^([a-zA-Z]+)\s*\((\d+)\)$', p)
+        if m2 and hasattr(self, 'object_dict'):
+            base_type = m2.group(1).capitalize()
+            target_num = int(m2.group(2))
+            if base_type in self.object_dict:
+                obj_name, obj_id_suffix = self._parse_object(object_id)
+                if obj_name == base_type and obj_id_suffix in self.object_dict[base_type]:
+                    if self.object_dict[base_type][obj_id_suffix] == target_num:
+                        return True
+
+        # fallback for legacy regex-style patterns
+        try:
+            return bool(
+                re.match(p, object_id, re.IGNORECASE)
+                or re.match(p, object_type, re.IGNORECASE)
+            )
+        except re.error:
+            return False
+
+    def _distance_agent_to_obj(self, agent_id: int, obj: dict) -> float:
+        agent_meta = self.controller.last_event.events[agent_id].metadata
+        agent_pos = agent_meta["agent"]["position"]
+        obj_pos = obj.get("position", {})
+        ox = obj_pos.get("x")
+        oz = obj_pos.get("z")
+        if ox is None or oz is None:
+            return float("inf")
+        return ((agent_pos["x"] - ox) ** 2 + (agent_pos["z"] - oz) ** 2) ** 0.5
+
+    def _resolve_object_ids(
+        self,
+        pattern: str,
+        *,
+        agent_id: Optional[int] = None,
+        policy: str = "nearest",
+        require_openable: Optional[bool] = None,
+        require_receptacle: Optional[bool] = None,
+        require_pickupable: Optional[bool] = None,
+        require_visible: Optional[bool] = None,
+        require_closed: Optional[bool] = None,
+        require_open: Optional[bool] = None,
+    ) -> List[str]:
+        """
+        Resolve object type/name/objectId pattern -> objectId list.
+        This is the shared layer for multi-instance objects (Cabinet/Apple/Fridge/...).
+        """
+        objs = self.controller.last_event.metadata.get("objects", [])
+        candidates = []
+
         for obj in objs:
-            if re.match(obj_pattern, obj, re.IGNORECASE):
-                return obj
-        return None
+            if not self._object_matches_pattern(obj, pattern):
+                continue
+            if require_openable is not None and bool(obj.get("openable", False)) != require_openable:
+                continue
+            if require_receptacle is not None and bool(obj.get("receptacle", False)) != require_receptacle:
+                continue
+            if require_pickupable is not None and bool(obj.get("pickupable", False)) != require_pickupable:
+                continue
+            if require_visible is not None and bool(obj.get("visible", False)) != require_visible:
+                continue
+            if require_closed is not None:
+                is_open = bool(obj.get("isOpen", False))
+                if require_closed and is_open:
+                    continue
+                if (not require_closed) and (not is_open):
+                    continue
+            if require_open is not None and bool(obj.get("isOpen", False)) != require_open:
+                continue
+            candidates.append(obj)
+
+        # deterministic order first
+        candidates.sort(key=lambda o: str(o.get("objectId", "")))
+
+        if agent_id is not None:
+            candidates.sort(key=lambda o: self._distance_agent_to_obj(agent_id, o))
+        elif policy == "nearest":
+            # fallback to deterministic if no agent context
+            policy = "first"
+
+        if policy == "first":
+            return [c["objectId"] for c in candidates]
+        if policy == "last":
+            return [c["objectId"] for c in reversed(candidates)]
+        if policy == "random":
+            shuffled = list(candidates)
+            random.shuffle(shuffled)
+            return [c["objectId"] for c in shuffled]
+        # default "nearest" (or unknown): sorted by distance if agent_id provided
+        return [c["objectId"] for c in candidates]
+
+    def _resolve_object_id(
+        self,
+        pattern: str,
+        *,
+        agent_id: Optional[int] = None,
+        policy: str = "nearest",
+        **kwargs,
+    ) -> Optional[str]:
+        ids = self._resolve_object_ids(
+            pattern,
+            agent_id=agent_id,
+            policy=policy,
+            **kwargs,
+        )
+        return ids[0] if ids else None
+
+    def _find_object_id(self, obj_pattern: str) -> Optional[str]:
+        """객체 이름/타입/ID 패턴을 objectId 하나로 resolve (기본: 첫/가까운 후보)."""
+        return self._resolve_object_id(obj_pattern, policy="first")
 
     def _cache_key(self, agent_id: int, pattern: str) -> Tuple[int, str]:
         return (agent_id, pattern.strip().lower())
@@ -781,34 +920,39 @@ class MultiRobotExecutor:
         if obj_id:
             self.receptacle_cache[self._cache_key(agent_id, pattern)] = obj_id
 
-    def _find_object_with_center(self, obj_pattern: str) -> Tuple[Optional[str], Optional[dict]]:
-        """객체 이름(예: "Apple")을 기반으로 시뮬레이션 내의 좌표를 찾는 함수"""
-        objs = self.controller.last_event.metadata["objects"]
-        for obj in objs:
-            if re.match(obj_pattern, obj["objectId"], re.IGNORECASE):
-                center = obj.get("axisAlignedBoundingBox", {}).get("center")
-                if center and center != {'x': 0.0, 'y': 0.0, 'z': 0.0}:
-                    return obj["objectId"], center
+    def _find_object_with_center(
+        self,
+        obj_pattern: str,
+        agent_id: Optional[int] = None,
+    ) -> Tuple[Optional[str], Optional[dict]]:
+        """객체 이름/타입/ID 패턴을 기준으로 objectId와 중심점(center) resolve."""
+        obj_id = self._resolve_object_id(
+            obj_pattern,
+            agent_id=agent_id,
+            policy="nearest",
+        )
+        if not obj_id:
+            return None, None
+        for obj in self.controller.last_event.metadata.get("objects", []):
+            if obj.get("objectId") != obj_id:
+                continue
+            center = obj.get("axisAlignedBoundingBox", {}).get("center")
+            if center and center != {'x': 0.0, 'y': 0.0, 'z': 0.0}:
+                return obj_id, center
+            # fallback: if bbox center not available, use object position
+            pos = obj.get("position")
+            if pos:
+                return obj_id, pos
         return None, None
 
     def _find_closest_receptacle(self, recp_pattern: str, agent_id: int) -> Optional[str]:
         """해당 agent 기준으로 가장 가까운 receptacle 찾기"""
-        agent_meta = self.controller.last_event.events[agent_id].metadata
-        agent_pos = agent_meta["agent"]["position"]
-
-        best_id = None
-        best_dist = float('inf')
-
-        for obj in self.controller.last_event.metadata["objects"]:
-            if re.match(recp_pattern, obj["objectId"], re.IGNORECASE):
-                obj_pos = obj.get("position", {})
-                dist = ((agent_pos["x"] - obj_pos.get("x", 0))**2 +
-                        (agent_pos["z"] - obj_pos.get("z", 0))**2) ** 0.5
-                if dist < best_dist:
-                    best_dist = dist
-                    best_id = obj["objectId"]
-
-        return best_id
+        return self._resolve_object_id(
+            recp_pattern,
+            agent_id=agent_id,
+            policy="nearest",
+            require_receptacle=True,
+        )
 
     def _agent_has_pending_actions(self, agent_id: int) -> bool:
         """해당 로봇의 액션이 action_queue에 남아 있는지 확인"""
@@ -1032,7 +1176,7 @@ class MultiRobotExecutor:
         print(f"[Robot{agent_id+1}] Going to {dest_obj}")
 
         # 대상 물체 찾기 및 위치 파악
-        dest_obj_id, dest_obj_center = self._find_object_with_center(dest_obj)
+        dest_obj_id, dest_obj_center = self._find_object_with_center(dest_obj, agent_id=agent_id)
         if not dest_obj_id or not dest_obj_center:
             print(f"[Robot{agent_id+1}] Cannot find {dest_obj}")
             return False
@@ -1353,22 +1497,20 @@ class MultiRobotExecutor:
         """Pick up object."""
         print(f"[Robot{agent_id+1}] Picking up {obj_pattern}")
 
-        obj_id, _ = self._find_object_with_center(obj_pattern)
+        obj_id, _ = self._find_object_with_center(obj_pattern, agent_id=agent_id)
         if not obj_id:
             print(f"[Robot{agent_id+1}] Cannot find {obj_pattern}")
             return
 
         print(f"[Robot{agent_id+1}] Picking up {obj_id}")
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'PickupObject',
             'objectId': obj_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
-        # checker: PickUpObject (대문자 U — checker 형식)
+        }, agent_id=agent_id, timeout=5.0)
+        # checker: PickupObject (소문자 u — checker 형식에 맞춤)
         readable = self._convert_object_id_to_readable(obj_id)
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
-        self._checker_report(agent_id, "PickUpObject", readable, success)
+        self._checker_report(agent_id, "PickupObject", readable, success)
 
     def PutObject(self, agent_id: int, obj_pattern: str, recp_pattern: str):
         """Put held object on/in receptacle."""
@@ -1387,16 +1529,14 @@ class MultiRobotExecutor:
         self._update_inventory(agent_id)
         inv_before_put = self.inventory[agent_id]
         # NOTE: PutObject uses objectId for receptacle!
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'PutObject',
             'objectId': recp_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         # checker: PutObject(receptacle) with inventory_object
         if self.checker is not None:
             recp_readable = self._convert_object_id_to_readable(recp_id)
-            success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
             action_str = f"PutObject({recp_readable})"
             self.checker.perform_metric_check(action_str, success, inv_before_put)
 
@@ -1414,17 +1554,22 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-        time.sleep(1)
 
-        self._enqueue_action({
+        # 서랍/냉장고 등 열리는 물체 앞에서 두 발 뒤로 빠져서 충돌 방지
+        for _ in range(2):
+            self._enqueue_and_wait({
+                'action': 'MoveBack',
+                'agent_id': agent_id
+            }, agent_id=agent_id, timeout=3.0)
+        time.sleep(0.5)
+
+        success = self._enqueue_and_wait({
             'action': 'OpenObject',
             'objectId': obj_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         # checker: OpenObject
         readable = self._convert_object_id_to_readable(obj_id)
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
         self._checker_report(agent_id, "OpenObject", readable, success)
 
     def CloseObject(self, agent_id: int, obj_pattern: str):
@@ -1441,17 +1586,14 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-        time.sleep(1)
 
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'CloseObject',
             'objectId': obj_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         # checker: CloseObject
         readable = self._convert_object_id_to_readable(obj_id)
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
         self._checker_report(agent_id, "CloseObject", readable, success)
 
     def SwitchOn(self, agent_id: int, obj_pattern: str):
@@ -1465,16 +1607,13 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-        time.sleep(1)
 
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'ToggleObjectOn',
             'objectId': obj_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         readable = self._convert_object_id_to_readable(obj_id)
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
         self._checker_report(agent_id, "ToggleObjectOn", readable, success)
 
     def SwitchOff(self, agent_id: int, obj_pattern: str):
@@ -1488,16 +1627,13 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-        time.sleep(1)
 
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'ToggleObjectOff',
             'objectId': obj_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         readable = self._convert_object_id_to_readable(obj_id)
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
         self._checker_report(agent_id, "ToggleObjectOff", readable, success)
 
     def SliceObject(self, agent_id: int, obj_pattern: str):
@@ -1511,16 +1647,13 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-        time.sleep(1)
 
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'SliceObject',
             'objectId': obj_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         readable = self._convert_object_id_to_readable(obj_id)
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
         self._checker_report(agent_id, "SliceObject", readable, success)
 
     def BreakObject(self, agent_id: int, obj_pattern: str):
@@ -1534,16 +1667,13 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-        time.sleep(1)
 
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'BreakObject',
             'objectId': obj_id,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         readable = self._convert_object_id_to_readable(obj_id)
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
         self._checker_report(agent_id, "BreakObject", readable, success)
 
     def ThrowObject(self, agent_id: int, obj_pattern: str):
@@ -1551,14 +1681,12 @@ class MultiRobotExecutor:
         print(f"[Robot{agent_id+1}] Throwing {obj_pattern}")
 
         obj_id = self._find_object_id(obj_pattern)
-        self._enqueue_action({
+        success = self._enqueue_and_wait({
             'action': 'ThrowObject',
             'objectId': obj_id or obj_pattern,
             'agent_id': agent_id
-        })
-        time.sleep(1)
+        }, agent_id=agent_id, timeout=5.0)
         readable = self._convert_object_id_to_readable(obj_id) if obj_id else obj_pattern
-        success = self.controller.last_event.events[agent_id].metadata.get("lastActionSuccess", False)
         self._checker_report(agent_id, "ThrowObject", readable, success)
 
     # -----------------------------
@@ -1785,7 +1913,10 @@ class MultiRobotExecutor:
         ]
 
         # 로봇 배치
-        min_spawn_distance = 1.5  # 로봇 간 최소 스폰 거리
+        if not self.reachable_positions_:
+            raise RuntimeError("No reachable positions returned by AI2-THOR; cannot place agents safely on NavMesh.")
+
+        min_spawn_distance = 1.0  # 로봇 간 최소 스폰 거리
         if spawn_positions:
             # LP에서 결정된 좌표를 가장 가까운 NavMesh 유효 위치로 보정하여 배치
             used_reachable = []  # 이미 사용된 reachable position (x, z) 좌표
@@ -1807,17 +1938,25 @@ class MultiRobotExecutor:
                         d = ((rp["x"] - pos[0])**2 + (rp["z"] - pos[2])**2)**0.5
                         if d < best_d:
                             best_d, best_rp = d, rp
+                    # 최소 간격 제약 때문에 후보가 없다면, 제약을 완화해서라도 NavMesh 위 좌표를 선택
+                    if best_rp is None:
+                        for rp in self.reachable_positions_:
+                            d = ((rp["x"] - pos[0])**2 + (rp["z"] - pos[2])**2)**0.5
+                            if d < best_d:
+                                best_d, best_rp = d, rp
                     if best_rp:
                         used_reachable.append((best_rp["x"], best_rp["z"]))
                         self.controller.step(dict(action="Teleport",
                             position=best_rp, agentId=i, forceAction=True))
-                        print(f"[Robot{rid}] Requested ({pos[0]:.2f}, {pos[2]:.2f}) -> snapped to reachable ({best_rp['x']:.2f}, {best_rp['z']:.2f}), dist={best_d:.2f}")
+                        if best_d > 0.0:
+                            print(f"[Robot{rid}] Requested ({pos[0]:.2f}, {pos[2]:.2f}) -> snapped to reachable ({best_rp['x']:.2f}, {best_rp['z']:.2f}), dist={best_d:.2f}")
+                        else:
+                            print(f"[Robot{rid}] Requested ({pos[0]:.2f}, {pos[2]:.2f}) -> snapped to reachable ({best_rp['x']:.2f}, {best_rp['z']:.2f}), dist=0.00")
                     else:
-                        # fallback: forceAction 텔레포트
-                        self.controller.step(dict(action="Teleport",
-                            position=dict(x=pos[0], y=pos[1], z=pos[2]),
-                            agentId=i, forceAction=True))
-                        print(f"[Robot{rid}] WARNING: No reachable position found, force-teleported to ({pos[0]:.2f}, {pos[2]:.2f})")
+                        # 안전상 이 분기에는 오지 않아야 하지만, 예외적으로 reachable이 비면 중단
+                        raise RuntimeError(
+                            f"[Robot{rid}] No reachable position available for spawn; aborting to avoid off-NavMesh teleport."
+                        )
                     # 실제 위치 확인
                     actual = self.controller.last_event.events[i].metadata["agent"]["position"]
                     print(f"[Robot{rid}] Actual position: ({actual['x']:.2f}, {actual['z']:.2f})")
@@ -1920,6 +2059,7 @@ class MultiRobotExecutor:
     # -----------------------------
     # Subtask 실행기
     # -----------------------------
+
     def _run_subtask(self, plan: SubtaskPlan):
         """하나의 서브태스크에 포함된 모든 액션을 순차적으로 실행하는 함수. 피드백 모드일 때 결과를 _subtask_results에 기록하고, 실시간 스토어가 있으면 즉시 반영."""
         tid = threading.get_ident()
@@ -1953,6 +2093,7 @@ class MultiRobotExecutor:
                     effects=None,
                 )
             print(f"[Subtask {plan.subtask_id}] Completed! success={success}")
+
         finally:
             self._thread_subtask_id.pop(tid, None)
 
@@ -2030,6 +2171,11 @@ class MultiRobotExecutor:
                     transport_rate = self.checker.get_transport_rate()
                     finished = self.checker.check_success()
                     print(f"Coverage: {coverage}, Transport Rate: {transport_rate}, Finished: {finished}")
+                    completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
+                    expected = sorted(getattr(self.checker, "subtasks", []))
+                    missing = sorted(set(expected) - set(completed))
+                    print(f"[Checker] Completed ({len(completed)}): {completed}")
+                    print(f"[Checker] Missing ({len(missing)}): {missing}")
                 except Exception:
                     pass
 

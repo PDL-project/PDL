@@ -1,0 +1,31 @@
+# Task Description: Open drawer6.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at drawer6 location
+
+# SubTask 6: Open drawer6.
+    Skills Required: GoToObject, OpenObject
+    Related Objects: drawer6(Location=floor)
+
+GoToObject(robot1, drawer6)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer6)
+
+OpenObject(robot1, drawer6)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer6)
+   Effects:
+     (object-open robot1 drawer6)
+     (not (object-close robot1 drawer6))
+
+Goal condition:
+(object-open robot1 drawer6)
+
+# Task Open drawer6 is done.

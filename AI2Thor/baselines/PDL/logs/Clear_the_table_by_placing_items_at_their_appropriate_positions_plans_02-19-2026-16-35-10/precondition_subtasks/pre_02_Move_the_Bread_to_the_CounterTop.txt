@@ -1,0 +1,49 @@
+# Task Description: Move the Bread to the CounterTop.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at bread location
+#2. Robot not holding bread
+
+# SubTask 2: Move the Bread to the CounterTop.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: Bread(Location=DiningTable), CounterTop(Location=Floor)
+
+GoToObject(robot1, Bread)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Bread)
+
+PickupObject(robot1, Bread, DiningTable)
+   Preconditions:
+     (at-location Bread DiningTable)
+     (at robot1 Bread)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Bread)
+
+GoToObject(robot1, CounterTop)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 CounterTop)
+
+PutObject(robot1, Bread, CounterTop)
+   Preconditions:
+     (holding robot1 Bread)
+     (at robot1 CounterTop)
+     (not (inaction robot1))
+     (not (is-fridge CounterTop))
+     (not (object-close robot1 CounterTop))
+   Effects:
+     (at-location Bread CounterTop)
+     (not (holding robot1 Bread))
+
+Goal condition:
+(at-location Bread CounterTop)
+
+# Task Move the Bread to the CounterTop is done.

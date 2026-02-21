@@ -1,0 +1,81 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 5,
+      "name": "subtask_05_Open_the_fifth_Drawer",
+      "objects": [
+        "robot1",
+        "drawer",
+        "floor",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Drawer is located on the floor",
+        "Robot is close to the drawer"
+      ],
+      "effects": [
+        "Robot opens the drawer",
+        "Drawer is no longer closed"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "subtask_07_Open_the_seventh_Drawer",
+      "objects": [
+        "robot1",
+        "drawer7",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Drawer is on the floor",
+        "Robot is close to the drawer"
+      ],
+      "effects": [
+        "Drawer is open"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "subtask_09_Open_the_ninth_Drawer",
+      "objects": [
+        "robot1",
+        "drawer",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Drawer is on the floor",
+        "Drawer is close to the robot"
+      ],
+      "effects": [
+        "Drawer is open",
+        "Drawer is no longer close to the robot"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 5,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same drawer object - cannot be manipulated in parallel"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      5
+    ],
+    "1": [
+      7
+    ],
+    "2": [
+      9
+    ]
+  }
+}

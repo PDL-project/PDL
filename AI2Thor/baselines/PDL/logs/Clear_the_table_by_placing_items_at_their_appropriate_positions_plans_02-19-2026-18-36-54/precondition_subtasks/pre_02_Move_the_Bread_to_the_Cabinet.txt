@@ -1,0 +1,66 @@
+# Task Description: Move the Bread to the Cabinet.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at bread location
+#2. Robot not holding bread
+#3. Cabinet is initially closed
+
+# SubTask 2: Move the Bread to the Cabinet.
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: Bread(Location=DiningTable), Cabinet(Location=Floor)
+
+GoToObject(robot1, Bread)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Bread)
+
+PickupObject(robot1, Bread, DiningTable)
+   Preconditions:
+     (at-location Bread DiningTable)
+     (at robot1 Bread)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Bread)
+
+GoToObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Cabinet)
+
+OpenObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Cabinet)
+   Effects:
+     (object-open robot1 Cabinet)
+     (not (object-close robot1 Cabinet))
+
+PutObject(robot1, Bread, Cabinet)
+   Preconditions:
+     (holding robot1 Bread)
+     (at robot1 Cabinet)
+     (not (inaction robot1))
+     (not (object-close robot1 Cabinet))
+   Effects:
+     (at-location Bread Cabinet)
+     (not (holding robot1 Bread))
+
+CloseObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Cabinet)
+     (object-open robot1 Cabinet)
+   Effects:
+     (object-close robot1 Cabinet)
+     (not (object-open robot1 Cabinet))
+
+Goal condition:
+(at-location Bread Cabinet)
+
+# Task Move the Bread to the Cabinet is done.

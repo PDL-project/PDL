@@ -1,0 +1,47 @@
+# Task Description: Move the Pan to the CounterTop.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at pan location
+#2. Robot not holding pan
+
+# SubTask 9: Move the Pan to the CounterTop.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: Pan(Location=DiningTable), CounterTop(Location=Floor)
+
+GoToObject(robot1, pan)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 pan)
+
+PickupObject(robot1, pan, diningTable)
+   Preconditions:
+     (at-location pan diningTable)
+     (at robot1 pan)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 pan)
+
+GoToObject(robot1, counterTop)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 counterTop)
+
+PutObject(robot1, pan, counterTop)
+   Preconditions:
+     (holding robot1 pan)
+     (at robot1 counterTop)
+     (not (inaction robot1))
+   Effects:
+     (at-location pan counterTop)
+     (not (holding robot1 pan))
+
+Goal condition:
+(at-location pan counterTop)
+
+# Task Move the Pan to the CounterTop is done.

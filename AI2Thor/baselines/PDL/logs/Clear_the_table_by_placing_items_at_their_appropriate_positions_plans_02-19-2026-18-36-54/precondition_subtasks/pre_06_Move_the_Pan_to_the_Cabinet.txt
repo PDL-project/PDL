@@ -1,0 +1,66 @@
+# Task Description: Move the Pan to the Cabinet.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at pan location
+#2. Robot not holding pan
+#3. Cabinet is initially closed
+
+# SubTask 6: Move the Pan to the Cabinet.
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: Pan(Location=DiningTable), Cabinet(Location=Floor)
+
+GoToObject(robot1, pan)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 pan)
+
+PickupObject(robot1, pan, diningTable)
+   Preconditions:
+     (at-location pan diningTable)
+     (at robot1 pan)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 pan)
+
+GoToObject(robot1, cabinet)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 cabinet)
+
+OpenObject(robot1, cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 cabinet)
+   Effects:
+     (object-open robot1 cabinet)
+     (not (object-close robot1 cabinet))
+
+PutObject(robot1, pan, cabinet)
+   Preconditions:
+     (holding robot1 pan)
+     (at robot1 cabinet)
+     (not (inaction robot1))
+     (not (object-close robot1 cabinet))
+   Effects:
+     (at-location pan cabinet)
+     (not (holding robot1 pan))
+
+CloseObject(robot1, cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 cabinet)
+     (object-open robot1 cabinet)
+   Effects:
+     (object-close robot1 cabinet)
+     (not (object-open robot1 cabinet))
+
+Goal condition:
+(at-location pan cabinet)
+
+# Task Move the Pan to the Cabinet is done.

@@ -91,33 +91,32 @@
 )
 
 
-# EXAMPLE 4 - Task Description: Put the Fork in the Drawer
-# NOTE: Drawers, cabinets, and other openable receptacles start CLOSED.
-# The planner must OpenObject before PutObject, then CloseObject after.
+# EXAMPLE 4 - Task Description: Open first Drawer
+# IMPORTANT MULTI-INSTANCE RULE:
+# If ENVIRONMENT OBJECTS contains multiple objects of the same type (e.g., 3 Drawers),
+# you MUST enumerate them as drawer1, drawer2, drawer3 in :objects and use each in goals.
+#
+# Example grounding from ENVIRONMENT OBJECTS:
+# Drawers found = 3  -> drawer1, drawer2, drawer3
 
 # problem file
-(define (problem put-fork-in-drawer)
+(define (problem open-first-drawers)
   (:domain allactionrobot)
 
   (:objects
     robot1 - robot
-    fork - object
-    drawer - object
-    diningtable - object
+    drawer1 - object
     floor - object
   )
 
   (:init
     (not (inaction robot1))
-    (at robot1 diningtable)
-    (at-location fork diningtable)
-    (at-location drawer floor)
-    (not (holding robot1 fork))
-    (object-close robot1 drawer)
+    (at robot1 floor)
+    (at-location drawer1 floor)
+    (object-close robot1 drawer1)
   )
 
   (:goal (and
-    (at-location fork drawer)
-    (object-close robot1 drawer)
+    (object-open robot1 drawer1)
   ))
 )

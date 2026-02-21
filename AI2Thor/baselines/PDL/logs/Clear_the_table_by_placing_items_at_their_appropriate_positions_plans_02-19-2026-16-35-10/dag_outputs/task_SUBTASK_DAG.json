@@ -1,0 +1,217 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Move_the_Bowl_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "bowl",
+        "countertop",
+        "diningtable"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Bowl is on the dining table",
+        "Countertop is on the floor",
+        "Robot is not holding the bowl"
+      ],
+      "effects": [
+        "Bowl is on the countertop",
+        "Robot is not holding the bowl"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Move_the_Bread_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "bread",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the floor",
+        "Bread is on the dining table",
+        "Robot is not holding the bread"
+      ],
+      "effects": [
+        "Bread is on the countertop",
+        "Robot is not holding the bread"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Move_the_Fork_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "fork",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Fork is on the dining table",
+        "Robot is not holding the fork"
+      ],
+      "effects": [
+        "Fork is on the countertop",
+        "Robot is not holding the fork"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Move_the_Spoon_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "spoon",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Spoon is on the dining table",
+        "Countertop is on the floor",
+        "Robot is not holding the spoon"
+      ],
+      "effects": [
+        "Spoon is on the countertop",
+        "Robot is not holding the spoon"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Move_the_Tomato_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "tomato",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Tomato is on the dining table",
+        "Robot is not holding the tomato"
+      ],
+      "effects": [
+        "Tomato is on the countertop",
+        "Robot is not holding the tomato"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Move_the_CoffeeMachine_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "coffeemachine",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "CoffeeMachine is on the DiningTable",
+        "Robot is not holding the CoffeeMachine"
+      ],
+      "effects": [
+        "CoffeeMachine is on the CounterTop",
+        "Robot is not holding the CoffeeMachine"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "subtask_07_Move_the_Toaster_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "toaster",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Toaster is on the dining table",
+        "Robot is not holding the toaster"
+      ],
+      "effects": [
+        "Toaster is on the countertop",
+        "Robot is not holding the toaster"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "subtask_08_Move_the_Mug_to_the_CoffeeMachine",
+      "objects": [
+        "robot1",
+        "mug",
+        "coffeemachine",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Mug is on the dining table",
+        "Robot is not holding the mug"
+      ],
+      "effects": [
+        "Mug is at the coffee machine",
+        "Robot is not holding the mug"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "subtask_09_Move_the_Pan_to_the_CounterTop",
+      "objects": [
+        "robot1",
+        "pan",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Pan is on the dining table",
+        "Robot is not holding the pan"
+      ],
+      "effects": [
+        "Pan is on the countertop",
+        "Robot is not holding the pan"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 6,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "CoffeeMachine is used in both subtasks"
+    },
+    {
+      "from_id": 8,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "CoffeeMachine is used in both subtasks"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      7,
+      9
+    ],
+    "1": [
+      6,
+      8
+    ]
+  }
+}

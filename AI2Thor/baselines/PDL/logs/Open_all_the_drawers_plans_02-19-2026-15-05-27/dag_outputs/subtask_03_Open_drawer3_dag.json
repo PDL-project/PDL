@@ -1,0 +1,22 @@
+{
+  "subtask_name": "subtask_03_Open_drawer3",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "openobject robot1 drawer3 (1)",
+      "action_type": "openobject",
+      "robot": "robot1",
+      "objects": [
+        "drawer3"
+      ],
+      "parallel_group": 0
+    }
+  ],
+  "edges": [],
+  "parallel_groups": {
+    "0": [
+      0
+    ]
+  },
+  "binding_edges": []
+}

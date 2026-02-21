@@ -1,0 +1,41 @@
+{
+  "subtask_name": "subtask_06_Close_fridge1",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "gotoobject robot1 fridge1 (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "fridge1"
+      ],
+      "parallel_group": 0
+    },
+    {
+      "id": 1,
+      "action": "closeobject robot1 fridge1 (1)",
+      "action_type": "closeobject",
+      "robot": "robot1",
+      "objects": [
+        "fridge1"
+      ],
+      "parallel_group": 1
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 0,
+      "to_id": 1,
+      "dependency_type": "causal"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      0
+    ],
+    "1": [
+      1
+    ]
+  },
+  "binding_edges": []
+}
