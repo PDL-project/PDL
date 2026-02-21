@@ -41,21 +41,24 @@ from LP_Module import assign_subtasks_cp_sat, binding_pairs_from_subtask_dag # �
 
 from MultiRobotExecutor import MultiRobotExecutor, SubTaskExecutionResult, _TASK_NAME_MAP, _TASK_NAME_MAP_LOWER # 멀티 로봇 실행 코드 생성/실행 관리
 from AI2Thor.Tasks.get_scene_init import get_scene_initializer  # preinit용
+
 from auto_config import AutoConfig # config 로딩/세팅 자동화
 
 from FeedbackLoopModule import (
     load_subtask_dag_edges,
     load_subtask_dag_effects,
     load_subtask_dag_parallel_groups,
+    load_dependency_groups_from_dag,
     PartialReplanner,
     GroupAgent,
     subtask_has_dependency,
     SubtaskManagerLLM,
-    CentralLLM,
     run_planner_for_one_subtask,
     SharedTaskStateStore,
     sync_execution_results_to_store,
     format_success_effects_for_prompt,
+    build_local_env_for_group,
+    local_env_to_str,
 )
 
 DEFAULT_MAX_TOKENS = 128
@@ -113,15 +116,14 @@ class PDDLUtils:
     def get_ai2_thor_objects(floor_plan: int, task_description: str = None) -> List[Dict[str, Any]]:
         """
         입력 : floor_plan -> 15, 201 같은 데이터셋 숫자
-               task_description -> 자연어 태스크 설명 (있으면 preinit 실행 후 객체 정보를 읽음)
-
+        task_description -> 자연어 태스크 설명 (있으면 preinit 실행 후 객체 정보를 읽음)
         출력 : objects_ai가 될 형식임
         [
             {'name': 'Apple', 'mass': 0.2},
             {'name': 'Knife', 'mass': 0.5},
             {'name': 'Fridge', 'mass': 50.0},
             ...
-        ]
+        ] 
         """
         controller = None
         scene_name = f"FloorPlan{floor_plan}"
@@ -710,18 +712,18 @@ class TaskManager:
                 decomposed_plan = self._generate_decomposed_plan(task, domain_content, self.available_robot_skills, objects_ai)
                 self.decomposed_plan.append(decomposed_plan)
                 
-                #print("✓ Decomposed plan generated")
+                print("✓ Decomposed plan generated")
                 #print("decomposed plan:\n", decomposed_plan)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
                 
                 parsed_subtasks = self._decomposed_plan_to_subtasks(decomposed_plan) #분리
-                #print("✓ Parsed Decomposed Plan generated")
+                print("✓ Parsed Decomposed Plan generated")
                 #print("parsed decomposed plan:\n", parsed_subtasks)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
                 precondition_subtasks = self._generate_precondition_subtasks(parsed_subtasks, domain_content, self.available_robot_skills, objects_ai)
                 self.precondition_subtasks.append(precondition_subtasks) 
-                #print("✓ Precondition Decomposed Plan generated")
+                print("✓ Precondition Decomposed Plan generated")
                 #print("Precondition Decomposed Plan:\n", precondition_subtasks)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
@@ -740,7 +742,7 @@ class TaskManager:
                 subtask_pddl_problems = self._generate_subtask_pddl_problems(precondition_subtasks, domain_content, self.available_robot_skills, objects_ai)
                 self.subtask_pddl_problems.append(subtask_pddl_problems)
 
-                #print("✓ PDDL problems generated")
+                print("✓ PDDL problems generated")
                 #print("PDDL problems plan:\n", subtask_pddl_problems)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
@@ -830,11 +832,60 @@ class TaskManager:
                     print("\n[Step 7] Running execution with feedback loop...")
                     task_name_fb = "task"
                     state_store = SharedTaskStateStore(self.base_path, task_name_fb)
+                    replan_retry_count = [0]
+
+                    def _on_subtask_failed(failed_result):
+                        """재계획 시도 후 새 플랜 로드 여부 반환."""
+                        if replan_retry_count[0] >= max_replan_retries:
+                            print(f"[Feedback] Max replan retries ({max_replan_retries}) reached, skipping replan")
+                            return False
+
+                        print(f"[Feedback] Immediate replan triggered by subtask {failed_result.subtask_id}")
+                        replan_retry_count[0] += 1
+
+                        current_results = dict(executor._subtask_results)
+                        dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
+                        effects_for_success = {
+                            sid: dag_effects.get(sid, [])
+                            for sid, r in current_results.items()
+                            if r.success and dag_effects
+                        }
+                        sync_execution_results_to_store(
+                            state_store, current_results, effects_by_subtask_id=effects_for_success
+                        )
+
+                        replan_result = self.run_feedback_replan(
+                            task_idx=task_idx,
+                            task_name=task_name_fb,
+                            execution_results=current_results,
+                            domain_content=domain_content,
+                            objects_ai=objects_ai,
+                            state_store=state_store,
+                            task_robot_ids=task_robot_ids,
+                            floor_plan=floor_plan,
+                        )
+
+                        if replan_result == "no_change":
+                            print("[Feedback] Replan: no_change")
+                            return False
+                        if replan_result == "fully_replanned":
+                            print("[Feedback] Replan: fully_replanned")
+                            success = self.reload_executor_with_integrated_dag(
+                                executor=executor,
+                                task_idx=task_idx,
+                                task_name=task_name_fb
+                            )
+                            return bool(success)
+                        return False
+
                     for retry in range(max_replan_retries + 1):
                         results = executor.execute_in_ai2thor_with_feedback(
-                            floor_plan, task_name=task_name_fb, state_store=state_store
+                            floor_plan,
+                            task_name=task_name_fb,
+                            state_store=state_store,
+                            on_subtask_failed=_on_subtask_failed,  # ← 콜백 연결
                         )
-                        # 성공한 서브태스크의 effects를 DAG에서 로드해 스토어에 반영 (로컬 피드백 시 재계획에 사용)
+                        # 실행 완료 후 최종 상태 스토어 반영
                         dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
                         effects_for_success = {
                             sid: dag_effects.get(sid, [])
@@ -863,12 +914,6 @@ class TaskManager:
                         )
                         if replan_result == "no_change":
                             break
-                        if replan_result == "full_replan_requested":
-                            self._validate_and_plan()
-                            self.generate_dag()
-                            executor.load_assignment(task_idx)
-                            executor.load_subtask_dag(task_name_fb)
-                            executor.load_plan_actions()
                         elif replan_result == "fully_replanned":
                             success = self.reload_executor_with_integrated_dag(
                                 executor=executor,
@@ -909,7 +954,7 @@ class TaskManager:
 
     def _generate_decomposed_plan(self, task: str, domain_content: str, robots: List[dict], objects_ai: str) -> str:
         """하나의 자연어 task를 subtask로 나누는 함수"""
-        prompt = ""
+        prompt = "" 
         try:
             # decomposition prompt file 불러오기
             #decompose_prompt_path = os.path.join(self.base_path, "data", "pythonic_plans", f"{self.prompt_decompse_set}.py")
@@ -919,6 +964,7 @@ class TaskManager:
             #Construct the prompt incrementally like the original
             #prompt = f"from pddl domain file with all possible AVAILABLE ROBOT SKILLS: \n{domain_content}\n\n"
 
+            
             prompt += "The following list is the ONLY set of objects that exist in the current environment.\n"
             prompt += "When writing subtasks and actions, you MUST ground every referenced object to this list.\n"
             prompt += "If the task mentions something not present, solve it using the closest available objects from the list.\n"
@@ -1626,7 +1672,7 @@ class TaskManager:
         재계획: decomposition → DAG 통합 → LP 재할당 → 재실행 준비
         
         Returns:
-            "no_change" | "fully_replanned" | "full_replan_requested"
+            "no_change" | "fully_replanned"
         """
         failed = [sid for sid, r in execution_results.items() if not r.success]
         if not failed:
@@ -1634,6 +1680,9 @@ class TaskManager:
         
         edges = load_subtask_dag_edges(self.base_path, task_name)
         parallel_groups = load_subtask_dag_parallel_groups(self.base_path, task_name)
+        # dependency_groups: 의존성 간선으로 연결된 Subtask Connected Component
+        # → LLM GroupAgent 할당 기준
+        dependency_groups = load_dependency_groups_from_dag(self.base_path, task_name)
         
         # GroupAgent 생성
         group_agent = GroupAgent(self.llm, self.gpt_version)
@@ -1648,48 +1697,45 @@ class TaskManager:
             partial_replanner = None
         
         updated = False
-        need_full_replan = False
-        
-        # 의존성 체크
-        for sid in failed:
-            if subtask_has_dependency(sid, edges):
-                need_full_replan = True
-                break
-        
-        if need_full_replan:
-            central_llm = CentralLLM(self.llm, self.gpt_version)
-            strategy = central_llm.decide_replan_strategy(
-                failed_subtask_ids=failed,
-                edges=edges,
-                context="At least one failed subtask has dependencies on others.",
-            )
-            if strategy == "full_replan":
-                print("[Feedback] Central LLM decided: full_replan")
-                return "full_replan_requested"
-        
-        # 그룹별 재계획 (decomposition_callback 사용)
-        if partial_replanner is not None and parallel_groups:
+
+        # dependency_groups별 재계획
+        if partial_replanner is not None and dependency_groups:
             processed_groups = set()
             
             for failed_id in failed:
-                # 실패한 서브태스크가 속한 그룹 찾기
+                # 실패한 서브태스크가 속한 dependency_group 찾기
                 found_group = None
-                for gid, sids in parallel_groups.items():
+                for dgid, sids in dependency_groups.items():
                     if failed_id in sids:
-                        found_group = gid
+                        found_group = dgid
                         break
                 
                 if found_group is None or found_group in processed_groups:
                     continue
                 
                 processed_groups.add(found_group)
-                subtask_ids_in_group = parallel_groups[found_group]
+                subtask_ids_in_group = dependency_groups[found_group]
                 
-                # ReplanContext 구성
+                # ReplanContext 구성 - AI2Thor로 실제 로컬 환경 수집
+                if floor_plan is not None:
+                    try:
+                        raw_local_env = build_local_env_for_group(
+                            base_path=self.base_path,
+                            group_subtask_ids=subtask_ids_in_group,
+                            floor_plan=floor_plan,
+                            task_name=task_name,
+                        )
+                        local_env_str = local_env_to_str(raw_local_env)
+                    except Exception as _le:
+                        print(f"[Feedback] local_env 수집 실패 (group {found_group}): {_le}")
+                        local_env_str = "Kitchen environment with standard appliances"
+                else:
+                    local_env_str = "Kitchen environment with standard appliances"
+
                 context = partial_replanner.build_context_for_replan(
-                    group_id=found_group,
-                    subtask_ids_in_group=subtask_ids_in_group,
-                    local_env="Kitchen environment with standard appliances"
+                    dep_group_id=found_group,
+                    subtask_ids_in_dep_group=subtask_ids_in_group,
+                    local_env=local_env_str
                 )
                 
                 if context is None:
@@ -1728,8 +1774,8 @@ class TaskManager:
                 
                 # 그룹 재계획
                 success = partial_replanner.replan_group(
-                    group_id=found_group,
-                    subtask_ids_in_group=subtask_ids_in_group,
+                    dep_group_id=found_group,
+                    subtask_ids_in_dep_group=subtask_ids_in_group,
                     context=context,
                     domain_content=domain_content_actual,
                     problem_content_by_id=problem_content_by_id,
@@ -1789,6 +1835,7 @@ class TaskManager:
             
             for sid in failed:
                 if subtask_has_dependency(sid, edges):
+                    print(f"[Feedback] Subtask {sid} has dependencies, skipping fallback replan (dependency_group replan should handle it)")
                     continue
                 result = execution_results.get(sid)
                 if not result or result.success:
@@ -2179,25 +2226,27 @@ class TaskManager:
             failed_ids = []
             
             for sid, rec in state_store._store.items():
+                sid_int = int(sid)
                 if rec.get("state") == "SUCCESS":
-                    success_ids.append(sid)
+                    success_ids.append(sid_int)
                 elif rec.get("state") == "FAILED":
-                    failed_ids.append(sid)
+                    failed_ids.append(sid_int)
             
             print(f"  Success subtasks: {success_ids}")
             print(f"  Failed subtasks: {failed_ids}")
             print(f"  Replanned subtasks: {replanned_subtask_ids}")
             
             # 성공한 서브테스크 노드 유지
+            success_ids_set = set(success_ids)
             success_nodes = [
                 n for n in original_dag["nodes"]
-                if n["id"] in success_ids
+                if int(n["id"]) in success_ids_set
             ]
             
             # 성공한 서브테스크 간 엣지만 유지
             success_edges = [
                 e for e in original_dag["edges"]
-                if e["from_id"] in success_ids and e["to_id"] in success_ids
+                if int(e["from_id"]) in success_ids_set and int(e["to_id"]) in success_ids_set
             ]
             
             print(f"  ✓ Kept {len(success_nodes)} success nodes, {len(success_edges)} edges")
@@ -2261,13 +2310,27 @@ class TaskManager:
                 print(f"    Subtask {sid}: {len(plan_actions)} actions")
             
             # 재계획된 서브테스크들에 대한 DAG 생성
+            if not new_summaries:
+                print("  ERROR: No summaries generated for replanned subtasks, aborting integration")
+                return False
             new_subtask_dag = dag_generator.build_subtask_dag(
                 task_name=f"{task_name}_replanned",
                 summaries=new_summaries
             )
             
-            new_nodes = new_subtask_dag.nodes
-            new_edges = new_subtask_dag.edges
+            # SubtaskSummary 객체를 dict 변환
+            from dataclasses import asdict
+            new_nodes = [
+                asdict(n) if hasattr(n, '__dataclass_fields__') else n
+                for n in new_subtask_dag.nodes
+            ]
+            new_edges = [
+                {"from_id": e.from_id, "to_id": e.to_id,
+                 "dependency_type": getattr(e, "dependency_type", "causal"),
+                 "reason": getattr(e, "reason", "")}
+                if hasattr(e, 'from_id') else e
+                for e in new_subtask_dag.edges
+            ]
             
             print(f"  ✓ Generated new DAG: {len(new_nodes)} nodes, {len(new_edges)} edges")
             
@@ -2284,16 +2347,19 @@ class TaskManager:
             # (의존성 분석: 성공 서브테스크 중 어떤 것이 재계획 서브테스크의 선행자인지)
             
             # 원래 DAG에서 실패/재계획 서브테스크들이 의존하던 선행자 찾기
+            replanned_ids_set = set(replanned_subtask_ids)
             for new_sid in replanned_subtask_ids:
                 # 원래 DAG에서 이 서브테스크로 들어오는 엣지 찾기
                 for orig_edge in original_dag["edges"]:
-                    if orig_edge["to_id"] == new_sid:
-                        predecessor_id = orig_edge["from_id"]
+                    if int(orig_edge["to_id"]) == new_sid:
+                        predecessor_id = int(orig_edge["from_id"])
                         # 선행자가 성공한 서브테스크라면 연결 유지
-                        if predecessor_id in success_ids:
+                        if predecessor_id in success_ids_set:
                             integrated_edges.append({
                                 "from_id": predecessor_id,
-                                "to_id": new_sid
+                                "to_id": new_sid,
+                                "dependency_type": orig_edge.get("dependency_type", "causal"),
+                                "reason": orig_edge.get("reason", ""),
                             })
                             print(f"    Reconnected: {predecessor_id} → {new_sid}")
             
@@ -2367,57 +2433,61 @@ class TaskManager:
         edges: List[Dict]
     ) -> Dict[int, List[int]]:
         """
-        노드와 엣지로부터 병렬 그룹 계산 (Topological Sort + Level-based Grouping)
-        
-        의존성이 없는 서브테스크들을 같은 그룹(레벨)으로 묶음
-        
+        노드와 엣지로부터 parallel_groups 계산 — 위상 정렬(Kahn's algorithm) 기반.
+
+        같은 레벨(level)에 속한 subtask들은 서로 의존성이 없으므로 병렬 실행 가능.
+        실행기는 레벨 순서대로 그룹을 발사하고, 같은 레벨 내에서는 스레드로 동시 실행.
+
+        [주의] Union-Find(Connected Component) 방식은 dependency_groups 계산용.
+               이 함수는 반드시 위상 정렬을 사용해야 한다.
+
         Args:
-            nodes: DAG 노드 리스트 (각 노드는 {"id": int, ...} 형태)
-            edges: DAG 엣지 리스트 (각 엣지는 {"from_id": int, "to_id": int} 형태)
-        
+            nodes: DAG 노드 리스트 ({"id": int, ...})
+            edges: DAG 엣지 리스트 ({"from_id": int, "to_id": int})
+
         Returns:
-            Dict[group_id, List[subtask_id]]: 병렬 그룹
+            Dict[level, List[subtask_id]]: 레벨별 병렬 그룹
         """
         if not nodes:
             return {}
-        
-        # 각 노드의 선행자(predecessors) 계산
-        node_ids = {n["id"] for n in nodes}
-        predecessors = {nid: set() for nid in node_ids}
-        
+
+        node_ids = [n["id"] for n in nodes]
+        id_set = set(node_ids)
+
+        preds: Dict[int, set] = {i: set() for i in node_ids}
+        succs: Dict[int, set] = {i: set() for i in node_ids}
         for e in edges:
-            from_id = e["from_id"]
-            to_id = e["to_id"]
-            if to_id in predecessors:
-                predecessors[to_id].add(from_id)
-        
-        # Topological sort + 레벨별 그룹화
-        groups = {}
-        visited = set()
-        level = 0
-        
-        while len(visited) < len(node_ids):
-            current_level_nodes = []
-            
-            for nid in node_ids:
-                if nid in visited:
-                    continue
-                
-                # 모든 선행자가 처리되었으면 현재 레벨에 추가
-                if predecessors[nid].issubset(visited):
-                    current_level_nodes.append(nid)
-            
-            if current_level_nodes:
-                groups[level] = sorted(current_level_nodes)
-                visited.update(current_level_nodes)
-                level += 1
-            else:
-                # 순환 의존성이 있는 경우 (남은 노드들 강제 추가)
-                remaining = list(node_ids - visited)
-                if remaining:
-                    groups[level] = sorted(remaining)
-                    break
-        
+            u, v = e["from_id"], e["to_id"]
+            if u in id_set and v in id_set:
+                preds[v].add(u)
+                succs[u].add(v)
+
+        from collections import deque
+        indeg = {i: len(preds[i]) for i in node_ids}
+        level = {i: 0 for i in node_ids}
+        q = deque([i for i in node_ids if indeg[i] == 0])
+        processed: set = set()
+
+        while q:
+            u = q.popleft()
+            processed.add(u)
+            for v in succs[u]:
+                level[v] = max(level[v], level[u] + 1)
+                indeg[v] -= 1
+                if indeg[v] == 0:
+                    q.append(v)
+
+        # 사이클 감지 후 누락 노드 복구
+        cycle_nodes = [i for i in node_ids if i not in processed]
+        if cycle_nodes:
+            print(f"[DAG] WARNING: Cycle detected {cycle_nodes}, placing at max_level+1")
+            max_level = max(level[i] for i in processed) if processed else 0
+            for i in cycle_nodes:
+                level[i] = max_level + 1
+
+        groups: Dict[int, List[int]] = {}
+        for i in node_ids:
+            groups.setdefault(level[i], []).append(i)
         return groups
 
 
@@ -2499,7 +2569,7 @@ class TaskManager:
             # 4. Binding pairs 계산
             from LP_Module import binding_pairs_from_subtask_dag
             
-            # subtask_dag 객체 형태로 변환 (간단한 래퍼)
+            # subtask_dag 객체 형태로 변환
             class SubtaskDAGWrapper:
                 def __init__(self, dag_dict):
                     self.nodes = dag_dict["nodes"]
@@ -2511,7 +2581,7 @@ class TaskManager:
             
             print(f"  ✓ Computed {len(binding_pairs)} binding pairs")
             
-            # 5. 로봇/오브젝트 위치 가져오기 (거리 기반 최적화)
+            # 5. 로봇/오브젝트 위치 가져오기
             robot_positions = None
             object_positions = None
             
@@ -2542,7 +2612,6 @@ class TaskManager:
                 subtask_title = next((st["title"] for st in parsed_subtasks if st["id"] == sid), f"Subtask {sid}")
                 print(f"    Subtask {sid} ({subtask_title}) → Robot {rid}")
             
-            # 할당 결과 저장
             assignment_output = {
                 "task_idx": task_idx,
                 "agent_count": len(task_robot_ids),
@@ -2739,8 +2808,9 @@ def main():
             print(f"\n----Test set tasks----\n{test_tasks}\nTotal: {len(test_tasks)} tasks\n")
 
             objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(floor_plan_num, task_description=task_str)}"
-
-            task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num)
+            task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num,
+                run_with_feedback=getattr(args, "run_with_feedback", False),
+                max_replan_retries=getattr(args, "max_replan_retries", 2))
 
             if args.log_results:
                 task_manager.log_results(

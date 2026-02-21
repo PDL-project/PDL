@@ -1,0 +1,50 @@
+# Task Description: Move the Mug to the appropriate position.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not holding mug
+# 2. Robot not at mug location
+
+# SubTask 3: Move the Mug to the appropriate position.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: mug(Location=DiningTable), appropriate_position(Location=CoffeeMachine)
+
+GoToObject(robot1, mug)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 mug)
+
+PickupObject(robot1, mug, DiningTable)
+   Preconditions:
+     (at-location mug DiningTable)
+     (at robot1 mug)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 mug)
+
+GoToObject(robot1, CoffeeMachine)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 CoffeeMachine)
+
+PutObject(robot1, mug, CoffeeMachine)
+   Preconditions:
+     (holding robot1 mug)
+     (at robot1 CoffeeMachine)
+     (not (inaction robot1))
+     (not (is-fridge CoffeeMachine))
+     (not (object-close robot1 CoffeeMachine))
+   Effects:
+     (at-location mug CoffeeMachine)
+     (not (holding robot1 mug))
+     (not (inaction robot1))
+
+Goal condition:
+(at-location mug CoffeeMachine)
+
+# Task Move the Mug to the appropriate position is done.

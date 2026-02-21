@@ -15,6 +15,10 @@ import shutil
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from collections import defaultdict, deque
+from FeedbackLoopModule import (
+    load_dependency_groups_from_dag,
+    build_dependency_groups,
+)
 from glob import glob
 from pathlib import Path
 import sys
@@ -361,6 +365,29 @@ class MultiRobotExecutor:
         with self.action_lock:
             return sum(len(q) for q in self.action_queues)
 
+    def _flush_agent_queue(self, agent_id: int) -> int:
+        """특정 로봇의 큐에 남은 액션을 즉시 모두 제거. 반환값: 제거된 액션 수."""
+        with self.action_lock:
+            if not self.action_queues or agent_id >= len(self.action_queues):
+                return 0
+            count = len(self.action_queues[agent_id])
+            self.action_queues[agent_id].clear()
+            return count
+
+    def _flush_subtask_actions(self, agent_id: int, subtask_id: int) -> int:
+        """특정 로봇 큐에서 해당 subtask_id가 태깅된 액션만 제거.
+        다른 subtask(새 그룹)의 액션은 보존. 반환값: 제거된 액션 수."""
+        with self.action_lock:
+            if not self.action_queues or agent_id >= len(self.action_queues):
+                return 0
+            q = self.action_queues[agent_id]
+            before = len(q)
+            # subtask_id가 정확히 일치하는 액션만 제거 (None 태깅 액션은 건드리지 않음)
+            self.action_queues[agent_id] = deque(
+                a for a in q if a.get("subtask_id") != subtask_id
+            )
+            return before - len(self.action_queues[agent_id])
+
     def _dequeue_action(self) -> Optional[dict]:
         # Round-Robin 방식으로 각 로봇의 Action Queue에서 다음 실행할 Action을 하나 꺼내는 함수
         with self.action_lock:
@@ -525,12 +552,16 @@ class MultiRobotExecutor:
                         # (C) None이면 아무것도 안 함
 
                         # blocking 감지: errorMessage에 "blocking"이 있으면 회피 유도
+                        # 단, 해당 subtask가 이미 실패했으면 MoveBack 생략 (큐 stuck 방지)
                         try:
                             err = multi_agent_event.events[aid].metadata.get("errorMessage", "") or ""
-                            if "blocking" in err.lower():
+                            _blk_sid = act.get("subtask_id")
+                            _already_failed = _blk_sid is not None and self._subtask_failed.get(_blk_sid, False)
+                            if "blocking" in err.lower() and not _already_failed:
                                 self._enqueue_action({
                                     'action': 'MoveBack',
-                                    'agent_id': aid
+                                    'agent_id': aid,
+                                    'subtask_id': _blk_sid,
                                 }, front=True)
                         except Exception:
                             pass
@@ -582,40 +613,69 @@ class MultiRobotExecutor:
 
                     elif act['action'] == 'PickupObject':
                         self.total_exec += 1
+                        aid = act['agent_id']
                         multi_agent_event = c.step(
                             action="PickupObject",
                             objectId=act['objectId'],
-                            agentId=act['agent_id'],
+                            agentId=aid,
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[PickupObject] Error: {multi_agent_event.metadata['errorMessage']}")
+                        # per-agent metadata에서 에러 읽기 (멀티에이전트 정확도)
+                        try:
+                            _pickup_err = multi_agent_event.events[aid].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _pickup_err = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _pickup_err:
+                            print(f"[PickupObject] Error: {_pickup_err}")
+                            # 어떤 이유든 PickupObject 실패 → subtask_failed 태깅 + 큐 flush
+                            _sid = act.get("subtask_id")
+                            if _sid is not None and _sid not in self._subtask_results:
+                                self._subtask_failed[_sid] = True
+                                self._subtask_last_error[_sid] = _pickup_err
+                                flushed = self._flush_subtask_actions(aid, _sid)
+                                if flushed:
+                                    print(f"[PickupObject] Flushed {flushed} pending action(s) for Robot{aid+1} (subtask {_sid})")
                         else:
                             self.success_exec += 1
 
                     elif act['action'] == 'PutObject':
                         self.total_exec += 1
+                        _put_aid = act['agent_id']
                         multi_agent_event = c.step(
                             action="PutObject",
                             objectId=act['objectId'],
-                            agentId=act['agent_id'],
+                            agentId=_put_aid,
                             forceAction=True
                         )
-                        err_msg = multi_agent_event.metadata.get('errorMessage', "")
-                        if err_msg != "":
-                            print(f"[PutObject] Error: {err_msg}")
-                            # Auto-recovery: if receptacle closed, open then retry once
-                            if "CLOSED" in err_msg.upper():
+                        # per-agent metadata에서 에러 읽기 (멀티에이전트 정확도)
+                        try:
+                            _put_err = multi_agent_event.events[_put_aid].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _put_err = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _put_err:
+                            print(f"[PutObject] Error: {_put_err}")
+                            # receptacle이 닫혀있으면 열고 1회 재시도
+                            if "CLOSED" in _put_err.upper():
                                 retry = act.get("retry", 0)
                                 if retry < 1:
                                     self._enqueue_action({
                                         'action': 'OpenObject',
                                         'objectId': act['objectId'],
-                                        'agent_id': act['agent_id']
+                                        'agent_id': _put_aid
                                     }, front=True)
                                     new_act = dict(act)
                                     new_act["retry"] = retry + 1
                                     self._enqueue_action(new_act, front=True)
+                                # retry 후 결과는 공통 피드백 블록이 처리하므로 여기선 태깅 안 함
+                            else:
+                                # CLOSED 외의 에러(No valid positions 등) → 즉시 subtask_failed 태깅 + 해당 subtask 액션만 flush
+                                _put_sid = act.get("subtask_id")
+                                if _put_sid is not None and _put_sid not in self._subtask_results:
+                                    self._subtask_failed[_put_sid] = True
+                                    self._subtask_last_error[_put_sid] = _put_err
+                                    flushed = self._flush_subtask_actions(_put_aid, _put_sid)
+                                    if flushed:
+                                        print(f"[PutObject] Flushed {flushed} pending action(s) for Robot{_put_aid+1} (subtask {_put_sid})")
                         else:
                             self.success_exec += 1
 
@@ -627,8 +687,20 @@ class MultiRobotExecutor:
                             agentId=act['agent_id'],
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[ToggleObjectOn] Error: {multi_agent_event.metadata['errorMessage']}")
+                        _aid_toggleobjecton = act['agent_id']
+                        try:
+                            _err_toggleobjecton = multi_agent_event.events[_aid_toggleobjecton].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _err_toggleobjecton = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _err_toggleobjecton:
+                            print(f"[ToggleObjectOn] Error (Robot{_aid_toggleobjecton+1}, subtask {act.get('subtask_id')}): {_err_toggleobjecton}")
+                            _sid_toggleobjecton = act.get("subtask_id")
+                            if _sid_toggleobjecton is not None and _sid_toggleobjecton not in self._subtask_results:
+                                self._subtask_failed[_sid_toggleobjecton] = True
+                                self._subtask_last_error[_sid_toggleobjecton] = _err_toggleobjecton
+                                flushed = self._flush_subtask_actions(_aid_toggleobjecton, _sid_toggleobjecton)
+                                if flushed:
+                                    print(f"[ToggleObjectOn] Flushed {flushed} pending action(s) for Robot{_aid_toggleobjecton+1} (subtask {_sid_toggleobjecton})")
                         else:
                             self.success_exec += 1
 
@@ -640,8 +712,20 @@ class MultiRobotExecutor:
                             agentId=act['agent_id'],
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[ToggleObjectOff] Error: {multi_agent_event.metadata['errorMessage']}")
+                        _aid_toggleobjectoff = act['agent_id']
+                        try:
+                            _err_toggleobjectoff = multi_agent_event.events[_aid_toggleobjectoff].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _err_toggleobjectoff = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _err_toggleobjectoff:
+                            print(f"[ToggleObjectOff] Error (Robot{_aid_toggleobjectoff+1}, subtask {act.get('subtask_id')}): {_err_toggleobjectoff}")
+                            _sid_toggleobjectoff = act.get("subtask_id")
+                            if _sid_toggleobjectoff is not None and _sid_toggleobjectoff not in self._subtask_results:
+                                self._subtask_failed[_sid_toggleobjectoff] = True
+                                self._subtask_last_error[_sid_toggleobjectoff] = _err_toggleobjectoff
+                                flushed = self._flush_subtask_actions(_aid_toggleobjectoff, _sid_toggleobjectoff)
+                                if flushed:
+                                    print(f"[ToggleObjectOff] Flushed {flushed} pending action(s) for Robot{_aid_toggleobjectoff+1} (subtask {_sid_toggleobjectoff})")
                         else:
                             self.success_exec += 1
 
@@ -653,8 +737,20 @@ class MultiRobotExecutor:
                             agentId=act['agent_id'],
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[OpenObject] Error: {multi_agent_event.metadata['errorMessage']}")
+                        _aid_openobject = act['agent_id']
+                        try:
+                            _err_openobject = multi_agent_event.events[_aid_openobject].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _err_openobject = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _err_openobject:
+                            print(f"[OpenObject] Error (Robot{_aid_openobject+1}, subtask {act.get('subtask_id')}): {_err_openobject}")
+                            _sid_openobject = act.get("subtask_id")
+                            if _sid_openobject is not None and _sid_openobject not in self._subtask_results:
+                                self._subtask_failed[_sid_openobject] = True
+                                self._subtask_last_error[_sid_openobject] = _err_openobject
+                                flushed = self._flush_subtask_actions(_aid_openobject, _sid_openobject)
+                                if flushed:
+                                    print(f"[OpenObject] Flushed {flushed} pending action(s) for Robot{_aid_openobject+1} (subtask {_sid_openobject})")
                         else:
                             self.success_exec += 1
 
@@ -666,8 +762,20 @@ class MultiRobotExecutor:
                             agentId=act['agent_id'],
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[CloseObject] Error: {multi_agent_event.metadata['errorMessage']}")
+                        _aid_closeobject = act['agent_id']
+                        try:
+                            _err_closeobject = multi_agent_event.events[_aid_closeobject].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _err_closeobject = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _err_closeobject:
+                            print(f"[CloseObject] Error (Robot{_aid_closeobject+1}, subtask {act.get('subtask_id')}): {_err_closeobject}")
+                            _sid_closeobject = act.get("subtask_id")
+                            if _sid_closeobject is not None and _sid_closeobject not in self._subtask_results:
+                                self._subtask_failed[_sid_closeobject] = True
+                                self._subtask_last_error[_sid_closeobject] = _err_closeobject
+                                flushed = self._flush_subtask_actions(_aid_closeobject, _sid_closeobject)
+                                if flushed:
+                                    print(f"[CloseObject] Flushed {flushed} pending action(s) for Robot{_aid_closeobject+1} (subtask {_sid_closeobject})")
                         else:
                             self.success_exec += 1
 
@@ -679,8 +787,20 @@ class MultiRobotExecutor:
                             agentId=act['agent_id'],
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[SliceObject] Error: {multi_agent_event.metadata['errorMessage']}")
+                        _aid_sliceobject = act['agent_id']
+                        try:
+                            _err_sliceobject = multi_agent_event.events[_aid_sliceobject].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _err_sliceobject = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _err_sliceobject:
+                            print(f"[SliceObject] Error (Robot{_aid_sliceobject+1}, subtask {act.get('subtask_id')}): {_err_sliceobject}")
+                            _sid_sliceobject = act.get("subtask_id")
+                            if _sid_sliceobject is not None and _sid_sliceobject not in self._subtask_results:
+                                self._subtask_failed[_sid_sliceobject] = True
+                                self._subtask_last_error[_sid_sliceobject] = _err_sliceobject
+                                flushed = self._flush_subtask_actions(_aid_sliceobject, _sid_sliceobject)
+                                if flushed:
+                                    print(f"[SliceObject] Flushed {flushed} pending action(s) for Robot{_aid_sliceobject+1} (subtask {_sid_sliceobject})")
                         else:
                             self.success_exec += 1
 
@@ -692,8 +812,20 @@ class MultiRobotExecutor:
                             agentId=act['agent_id'],
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[ThrowObject] Error: {multi_agent_event.metadata['errorMessage']}")
+                        _aid_throwobject = act['agent_id']
+                        try:
+                            _err_throwobject = multi_agent_event.events[_aid_throwobject].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _err_throwobject = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _err_throwobject:
+                            print(f"[ThrowObject] Error (Robot{_aid_throwobject+1}, subtask {act.get('subtask_id')}): {_err_throwobject}")
+                            _sid_throwobject = act.get("subtask_id")
+                            if _sid_throwobject is not None and _sid_throwobject not in self._subtask_results:
+                                self._subtask_failed[_sid_throwobject] = True
+                                self._subtask_last_error[_sid_throwobject] = _err_throwobject
+                                flushed = self._flush_subtask_actions(_aid_throwobject, _sid_throwobject)
+                                if flushed:
+                                    print(f"[ThrowObject] Flushed {flushed} pending action(s) for Robot{_aid_throwobject+1} (subtask {_sid_throwobject})")
                         else:
                             self.success_exec += 1
 
@@ -705,26 +837,53 @@ class MultiRobotExecutor:
                             agentId=act['agent_id'],
                             forceAction=True
                         )
-                        if multi_agent_event.metadata['errorMessage'] != "":
-                            print(f"[BreakObject] Error: {multi_agent_event.metadata['errorMessage']}")
+                        _aid_breakobject = act['agent_id']
+                        try:
+                            _err_breakobject = multi_agent_event.events[_aid_breakobject].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _err_breakobject = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        if _err_breakobject:
+                            print(f"[BreakObject] Error (Robot{_aid_breakobject+1}, subtask {act.get('subtask_id')}): {_err_breakobject}")
+                            _sid_breakobject = act.get("subtask_id")
+                            if _sid_breakobject is not None and _sid_breakobject not in self._subtask_results:
+                                self._subtask_failed[_sid_breakobject] = True
+                                self._subtask_last_error[_sid_breakobject] = _err_breakobject
+                                flushed = self._flush_subtask_actions(_aid_breakobject, _sid_breakobject)
+                                if flushed:
+                                    print(f"[BreakObject] Flushed {flushed} pending action(s) for Robot{_aid_breakobject+1} (subtask {_sid_breakobject})")
                         else:
                             self.success_exec += 1
 
                     elif act['action'] == 'Done':
                         multi_agent_event = c.step(action="Done")
                     
-                    # 피드백 루프: 서브태스크별 실패 기록
-                    # 네비게이션 액션(ObjectNavExpertAction, MoveBack, MoveAhead, Rotate*)의 에러는 무시
-                    # 실제 목표 액션(Open/Close/Pickup/Put/Toggle/Slice 등)의 실패만 기록
+                    # 피드백 루프: 서브태스크별 실패 기록 (per-agent errorMessage 우선)
+                    # PickupObject/PutObject 등은 자체 블록에서 이미 태깅하므로 공통 블록에서 제외
+                    # 네비게이션 액션의 에러는 무시 (이동 실패는 서브태스크 실패로 간주하지 않음)
                     _NAV_ACTIONS = {"ObjectNavExpertAction", "MoveBack", "MoveAhead",
                                     "RotateLeft", "RotateRight", "LookUp", "LookDown", "Teleport"}
+                    _individual_handled = act.get("action") in ("PickupObject", "PutObject", "ToggleObjectOn", "ToggleObjectOff", "OpenObject", "CloseObject", "SliceObject", "ThrowObject", "BreakObject")
                     if (multi_agent_event is not None
-                            and multi_agent_event.metadata.get("errorMessage")
+                            and not _individual_handled
                             and act.get("action") not in _NAV_ACTIONS):
-                        sid = act.get("subtask_id")
-                        if sid is not None:
-                            self._subtask_failed[sid] = True
-                            self._subtask_last_error[sid] = multi_agent_event.metadata.get("errorMessage", "")
+                        _fb_sid = act.get("subtask_id")
+                        _fb_aid = act.get("agent_id", 0)
+                        _fb_err = ""
+                        try:
+                            _fb_err = multi_agent_event.events[_fb_aid].metadata.get("errorMessage", "") or ""
+                        except Exception:
+                            _fb_err = multi_agent_event.metadata.get("errorMessage", "") or ""
+                        # 이미 결과가 기록된 subtask(완료된 것)는 무시 — 그룹 간 교차 오염 방지
+                        if _fb_err and _fb_sid is not None and _fb_sid not in self._subtask_results:
+                            already_failed = self._subtask_failed.get(_fb_sid, False)
+                            self._subtask_failed[_fb_sid] = True
+                            self._subtask_last_error[_fb_sid] = _fb_err
+                            if not already_failed:
+                                # 새로 감지된 실패: 해당 로봇 큐 즉시 flush
+                                flushed = self._flush_subtask_actions(_fb_aid, _fb_sid)
+                                if flushed:
+                                    print(f"[Feedback] Flushed {flushed} pending action(s) for Robot{_fb_aid+1} (subtask {_fb_sid})")
+
 
                 except Exception as e:
                     print(f"[ExecActions] Exception: {e}")
@@ -909,6 +1068,7 @@ class MultiRobotExecutor:
     def _find_object_id(self, obj_pattern: str) -> Optional[str]:
         """객체 이름/타입/ID 패턴을 objectId 하나로 resolve (기본: 첫/가까운 후보)."""
         return self._resolve_object_id(obj_pattern, policy="first")
+    
 
     def _cache_key(self, agent_id: int, pattern: str) -> Tuple[int, str]:
         return (agent_id, pattern.strip().lower())
@@ -1210,6 +1370,12 @@ class MultiRobotExecutor:
         while dist_goal > goal_thresh and iteration < max_iterations:
             iteration += 1
 
+            # 현재 subtask가 실패 태깅된 경우 즉시 내비게이션 중단
+            _nav_sid = self._get_current_subtask_id()
+            if _nav_sid is not None and self._subtask_failed.get(_nav_sid, False):
+                print(f"[Robot{agent_id+1}] GoToObject aborted: subtask {_nav_sid} already failed")
+                return False
+
             # 현재 로봇의 위치 정보(메타데이터) 가져오기
             metadata = self.controller.last_event.events[agent_id].metadata
             location = {
@@ -1502,13 +1668,21 @@ class MultiRobotExecutor:
             print(f"[Robot{agent_id+1}] Cannot find {obj_pattern}")
             return
 
+        # subtask가 이미 실패 태깅된 경우 pickup 자체를 건너뜀
+        _pick_sid = self._get_current_subtask_id()
+        if _pick_sid is not None and self._subtask_failed.get(_pick_sid, False):
+            print(f"[Robot{agent_id+1}] PickupObject skipped: subtask {_pick_sid} already failed")
+            return
         print(f"[Robot{agent_id+1}] Picking up {obj_id}")
         success = self._enqueue_and_wait({
             'action': 'PickupObject',
             'objectId': obj_id,
-            'agent_id': agent_id
-        }, agent_id=agent_id, timeout=5.0)
-        # checker: PickupObject (소문자 u — checker 형식에 맞춤)
+            'agent_id': agent_id,
+            'subtask_id': self._get_current_subtask_id(),
+        }, agent_id=agent_id, timeout=10.0)
+        # _enqueue_and_wait는 _exec_actions가 c.step() + 실패 태깅까지 완료한 후 리턴
+        # → 이 시점에서 _subtask_failed 기록이 100% 완료됨 (sleep 불필요)
+        # checker: PickUpObject (대문자 U — checker 형식)
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "PickupObject", readable, success)
 
@@ -1524,16 +1698,23 @@ class MultiRobotExecutor:
             print(f"[Robot{agent_id+1}] Cannot find receptacle {recp_pattern}")
             return
 
+        # subtask가 이미 실패 태깅된 경우 put 자체를 건너뜀
+        _put_sid2 = self._get_current_subtask_id()
+        if _put_sid2 is not None and self._subtask_failed.get(_put_sid2, False):
+            print(f"[Robot{agent_id+1}] PutObject skipped: subtask {_put_sid2} already failed")
+            return
         print(f"[Robot{agent_id+1}] Putting on {recp_id}")
         # checker: put 전 inventory 저장 (put 후엔 비어있으므로)
         self._update_inventory(agent_id)
         inv_before_put = self.inventory[agent_id]
-        # NOTE: PutObject uses objectId for receptacle!
         success = self._enqueue_and_wait({
             'action': 'PutObject',
             'objectId': recp_id,
-            'agent_id': agent_id
-        }, agent_id=agent_id, timeout=5.0)
+            'agent_id': agent_id,
+            'subtask_id': self._get_current_subtask_id(),
+        }, agent_id=agent_id, timeout=10.0)
+        # _enqueue_and_wait는 c.step() + 실패 태깅까지 완료 후 리턴
+        # → _subtask_failed 기록 100% 보장됨
         # checker: PutObject(receptacle) with inventory_object
         if self.checker is not None:
             recp_readable = self._convert_object_id_to_readable(recp_id)
@@ -1554,7 +1735,6 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-
         # 서랍/냉장고 등 열리는 물체 앞에서 두 발 뒤로 빠져서 충돌 방지
         for _ in range(2):
             self._enqueue_and_wait({
@@ -1568,6 +1748,14 @@ class MultiRobotExecutor:
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        # 큐가 빌 때까지 대기 → 실패 태깅 타이밍 보장
+        _drain_deadline = time.time() + 10.0
+        while time.time() < _drain_deadline:
+            with self.action_lock:
+                if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                    break
+            time.sleep(0.05)
+        time.sleep(0.1)
         # checker: OpenObject
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "OpenObject", readable, success)
@@ -1586,12 +1774,20 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-
+        
         success = self._enqueue_and_wait({
             'action': 'CloseObject',
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        # 큐가 빌 때까지 대기 → 실패 태깅 타이밍 보장
+        _drain_deadline = time.time() + 10.0
+        while time.time() < _drain_deadline:
+            with self.action_lock:
+                if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                    break
+            time.sleep(0.05)
+        time.sleep(0.1)
         # checker: CloseObject
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "CloseObject", readable, success)
@@ -1607,12 +1803,20 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-
+        
         success = self._enqueue_and_wait({
             'action': 'ToggleObjectOn',
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        # 큐가 빌 때까지 대기 → 실패 태깅 타이밍 보장
+        _drain_deadline = time.time() + 10.0
+        while time.time() < _drain_deadline:
+            with self.action_lock:
+                if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                    break
+            time.sleep(0.05)
+        time.sleep(0.1)
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "ToggleObjectOn", readable, success)
 
@@ -1633,6 +1837,15 @@ class MultiRobotExecutor:
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+
+        # 큐가 빌 때까지 대기 → 실패 태깅 타이밍 보장
+        _drain_deadline = time.time() + 10.0
+        while time.time() < _drain_deadline:
+            with self.action_lock:
+                if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                    break
+            time.sleep(0.05)
+        time.sleep(0.1)
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "ToggleObjectOff", readable, success)
 
@@ -1647,12 +1860,19 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-
         success = self._enqueue_and_wait({
             'action': 'SliceObject',
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        # 큐가 빌 때까지 대기 → 실패 태깅 타이밍 보장
+        _drain_deadline = time.time() + 10.0
+        while time.time() < _drain_deadline:
+            with self.action_lock:
+                if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                    break
+            time.sleep(0.05)
+        time.sleep(0.1)
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "SliceObject", readable, success)
 
@@ -1667,12 +1887,19 @@ class MultiRobotExecutor:
 
         if not self.GoToObject(agent_id, obj_pattern):
             return
-
         success = self._enqueue_and_wait({
             'action': 'BreakObject',
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        # 큐가 빌 때까지 대기 → 실패 태깅 타이밍 보장
+        _drain_deadline = time.time() + 10.0
+        while time.time() < _drain_deadline:
+            with self.action_lock:
+                if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                    break
+            time.sleep(0.05)
+        time.sleep(0.1)
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "BreakObject", readable, success)
 
@@ -1686,6 +1913,14 @@ class MultiRobotExecutor:
             'objectId': obj_id or obj_pattern,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        # 큐가 빌 때까지 대기 → 실패 태깅 타이밍 보장
+        _drain_deadline = time.time() + 10.0
+        while time.time() < _drain_deadline:
+            with self.action_lock:
+                if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                    break
+            time.sleep(0.05)
+        time.sleep(0.1)
         readable = self._convert_object_id_to_readable(obj_id) if obj_id else obj_pattern
         self._checker_report(agent_id, "ThrowObject", readable, success)
 
@@ -1782,7 +2017,13 @@ class MultiRobotExecutor:
                     'objectId': '',
                     'agent_id': agent_id
                 })
-                time.sleep(1)
+                _drain_dl = time.time() + 10.0
+                while time.time() < _drain_dl:
+                    with self.action_lock:
+                        if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                            break
+                    time.sleep(0.05)
+                time.sleep(0.1)
 
         elif atype == "pushobject" and len(objs) >= 1:
             if not self.GoToObject(agent_id, objs[0]):
@@ -1794,7 +2035,13 @@ class MultiRobotExecutor:
                     'objectId': obj_id,
                     'agent_id': agent_id
                 })
-            time.sleep(1)
+            _drain_dl = time.time() + 10.0
+            while time.time() < _drain_dl:
+                with self.action_lock:
+                    if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                        break
+                time.sleep(0.05)
+            time.sleep(0.1)
 
         elif atype == "pullobject" and len(objs) >= 1:
             if not self.GoToObject(agent_id, objs[0]):
@@ -1806,7 +2053,13 @@ class MultiRobotExecutor:
                     'objectId': obj_id,
                     'agent_id': agent_id
                 })
-            time.sleep(1)
+            _drain_dl = time.time() + 10.0
+            while time.time() < _drain_dl:
+                with self.action_lock:
+                    if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                        break
+                time.sleep(0.05)
+            time.sleep(0.1)
 
         else:
             print(f"[Robot{agent_id+1}] SKIP/UNKNOWN: {action_str}")
@@ -1944,6 +2197,7 @@ class MultiRobotExecutor:
                             d = ((rp["x"] - pos[0])**2 + (rp["z"] - pos[2])**2)**0.5
                             if d < best_d:
                                 best_d, best_rp = d, rp
+
                     if best_rp:
                         used_reachable.append((best_rp["x"], best_rp["z"]))
                         self.controller.step(dict(action="Teleport",
@@ -2059,7 +2313,6 @@ class MultiRobotExecutor:
     # -----------------------------
     # Subtask 실행기
     # -----------------------------
-
     def _run_subtask(self, plan: SubtaskPlan):
         """하나의 서브태스크에 포함된 모든 액션을 순차적으로 실행하는 함수. 피드백 모드일 때 결과를 _subtask_results에 기록하고, 실시간 스토어가 있으면 즉시 반영."""
         tid = threading.get_ident()
@@ -2075,8 +2328,20 @@ class MultiRobotExecutor:
 
         try:
             for i, action in enumerate(plan.actions):
+                # 이전 액션에서 이미 실패 태깅됐으면 남은 액션 중단 (연쇄 실패 방지)
+                if self._subtask_failed.get(plan.subtask_id, False):
+                    print(f"[Subtask {plan.subtask_id}] Aborting remaining {len(plan.actions) - i} action(s) due to earlier failure")
+                    break
                 print(f"[Robot{plan.robot_id}] Action {i+1}/{len(plan.actions)}: {action}")
                 self._execute_pddl_action(agent_id, action)
+                # flush 시 action_queues[agent_id]가 새 deque로 교체될 수 있으므로
+                # 매 루프마다 action_queues[agent_id]를 직접 참조해야 함
+                while True:
+                    with self.action_lock:
+                        if agent_id >= len(self.action_queues) or len(self.action_queues[agent_id]) == 0:
+                            break
+                    time.sleep(0.05)
+                time.sleep(0.1)  # AI2-THOR errorMessage 기록 완료 여유 시간
 
             success = not self._subtask_failed.get(plan.subtask_id, False)
             err = self._subtask_last_error.get(plan.subtask_id, "")
@@ -2093,7 +2358,6 @@ class MultiRobotExecutor:
                     effects=None,
                 )
             print(f"[Subtask {plan.subtask_id}] Completed! success={success}")
-
         finally:
             self._thread_subtask_id.pop(tid, None)
 
@@ -2187,8 +2451,14 @@ class MultiRobotExecutor:
         floor_plan: int,
         task_name: str = "task",
         state_store: Optional[Any] = None,
+        on_subtask_failed: Optional[Any] = None,
     ) -> Dict[int, SubTaskExecutionResult]:
         """피드백 루프용: 서브태스크를 그룹별·순차 실행하고, 서브태스크별 성공/실패 결과를 반환.
+
+        on_subtask_failed: 서브태스크 하나가 실패할 때마다 즉시 호출되는 콜백.
+            signature: on_subtask_failed(result: SubTaskExecutionResult) -> bool
+            반환값 True  → 새 플랜이 로드됐으니 남은 subtask를 다시 시작
+            반환값 False → 재계획 불가 또는 불필요, 그냥 계속 진행
         state_store가 주어지면 개별 서브태스크 완료 시마다 즉시 상태를 반영(실시간 스토어 반영).
         """
         if not self.assignment or not self.parallel_groups or not self.subtask_plans:
@@ -2199,35 +2469,108 @@ class MultiRobotExecutor:
         self._subtask_last_error = {}
 
         if state_store is not None:
-            state_store.init_from_dag(self.parallel_groups)
+            # dependency_groups: 의존성으로 연결된 Subtask 클러스터 (LLM GroupAgent 할당 기준)
+            dep_groups = load_dependency_groups_from_dag(self.base_path, task_name)
+            state_store.init_from_dag(self.parallel_groups, dependency_groups=dep_groups)
             self._feedback_state_store = state_store
+            self._dependency_groups = dep_groups
         else:
             self._feedback_state_store = None
+            self._dependency_groups = {}
 
         agent_count = max(self.assignment.values()) if self.assignment else 1
         self.start_ai2thor(floor_plan=floor_plan, agent_count=agent_count)
 
-        groups_to_plans: Dict[int, List[SubtaskPlan]] = defaultdict(list)
-        for sid, p in self.subtask_plans.items():
-            groups_to_plans[p.parallel_group].append(p)
+        def _rebuild_groups() -> Dict[int, List[SubtaskPlan]]:
+            g: Dict[int, List[SubtaskPlan]] = defaultdict(list)
+            for sid, p in self.subtask_plans.items():
+                g[p.parallel_group].append(p)
+            return g
 
         print("=" * 60)
         print("[EXEC] Multi-Robot Execution (Feedback Mode: sequential per subtask)")
         if state_store is not None:
             print("[EXEC] Real-time state store: ON")
+        if on_subtask_failed is not None:
+            print("[EXEC] Immediate replan callback: ON")
         print("=" * 60)
 
+        # 재계획 트리거 이벤트: 그룹 내 어떤 subtask가 실패하면 set()
+        _replan_triggered = threading.Event()
+
+        def _agent_queue_len(agent_id: int) -> int:
+            """특정 로봇(0-based agent_id)의 큐 길이만 반환."""
+            with self.action_lock:
+                if not self.action_queues or agent_id >= len(self.action_queues):
+                    return 0
+                return len(self.action_queues[agent_id])
+
+        def _run_subtask_with_callback(p: SubtaskPlan):
+            """subtask 실행 후 즉시 실패 여부 확인, 실패 시 콜백 호출."""
+            # 이미 성공한 subtask는 재실행하지 않음
+            if self._subtask_results.get(p.subtask_id) and                     self._subtask_results[p.subtask_id].success:
+                print(f"[Subtask {p.subtask_id}] Already succeeded, skipping")
+                return
+
+            self._run_subtask(p)
+
+            # 해당 로봇의 큐만 빌 때까지 대기 (다른 로봇 큐는 무관)
+            agent_id = p.robot_id - 1  # 1-based → 0-based
+            while _agent_queue_len(agent_id) > 0:
+                time.sleep(0.05)
+
+            result = self._subtask_results.get(p.subtask_id)
+            if result and not result.success:
+                print(f"[Feedback] Subtask {p.subtask_id} FAILED: {result.error_message}")
+                if on_subtask_failed is not None and not _replan_triggered.is_set():
+                    _replan_triggered.set()  # 같은 그룹 내 다른 스레드가 중복 호출하지 않도록
+                    try:
+                        replanned = on_subtask_failed(result)
+                    except Exception as _cb_e:
+                        print(f"[Feedback] on_subtask_failed callback error: {_cb_e}")
+                        replanned = False
+                    if replanned:
+                        print(f"[Feedback] Replan applied after subtask {p.subtask_id}")
+
         try:
-            for gid in sorted(groups_to_plans.keys()):
-                plans = groups_to_plans[gid]
+            for gid in sorted(_rebuild_groups().keys()):
+                _replan_triggered.clear()
+                plans = _rebuild_groups()[gid]
+
+                # 이번 그룹 subtask들의 이전 실패 상태 초기화 (이전 그룹 오염 방지)
+                for _p in plans:
+                    if not (self._subtask_results.get(_p.subtask_id) and
+                            self._subtask_results[_p.subtask_id].success):
+                        self._subtask_failed.pop(_p.subtask_id, None)
+                        self._subtask_last_error.pop(_p.subtask_id, None)
+
+                # execute_in_ai2thor와 동일하게 로봇별 스레드로 병렬 실행
+                # (같은 로봇에 할당된 subtask는 한 스레드 안에서 순차 처리)
+                robot_plans: Dict[int, List[SubtaskPlan]] = defaultdict(list)
                 for p in plans:
-                    t = threading.Thread(target=self._run_subtask, args=(p,), daemon=True)
+                    robot_plans[p.robot_id].append(p)
+
+                threads = []
+                for _, plan_list in robot_plans.items():
+                    t = threading.Thread(
+                        target=lambda pl=plan_list: [_run_subtask_with_callback(p) for p in pl],
+                        daemon=True,
+                    )
+                    threads.append(t)
+
+                for t in threads:
                     t.start()
+                for t in threads:
                     t.join()
-                    while len(self.action_queue) > 0:
-                        time.sleep(0.3)
+
+                # _exec_actions 백그라운드 스레드가 이번 그룹의 모든 액션을 소화할 때까지 대기
+                # 이걸 하지 않으면 다음 그룹 시작 시 큐에 이전 그룹 잔여 액션이 남아 교차 오염 발생
+                while self._queue_total_len() > 0:
+                    time.sleep(0.05)
+
                 print(f"[Group {gid}] Completed")
-            while len(self.action_queue) > 0:
+
+            while self._queue_total_len() > 0:
                 time.sleep(0.3)
             return dict(self._subtask_results)
         finally:

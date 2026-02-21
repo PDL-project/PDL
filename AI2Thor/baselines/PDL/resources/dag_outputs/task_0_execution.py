@@ -23,34 +23,52 @@ if scripts_path not in sys.path:
 from MultiRobotExecutor import MultiRobotExecutor, SubtaskPlan
 
 # --- Robot Assignment ---
-ASSIGNMENT = {1: 2, 2: 4, 3: 1}  # subtask_id -> robot_id
-PARALLEL_GROUPS = {0: [1], 1: [2], 2: [3]}  # group_id -> [subtask_ids]
+ASSIGNMENT = {1: 2, 2: 2, 3: 4, 4: 3, 5: 1, 6: 4}  # subtask_id -> robot_id
+PARALLEL_GROUPS = {0: [1, 2, 3, 4, 6], 1: [5]}  # group_id -> [subtask_ids]
 AGENT_COUNT = 4
-SPAWN_POSITIONS = {1: (1.25, 0.900999128818512, -1.75), 2: (2.0, 0.900999128818512, 0.0), 3: (1.0, 0.900999128818512, 2.0), 4: (-0.5, 0.900999128818512, -1.5)}  # LP에서 결정된 스폰 좌표
+SPAWN_POSITIONS = {1: (-2.75, 0.9009997248649597, 1.25), 2: (-1.0, 0.9009997248649597, 1.25), 3: (-2.75, 0.9009997844696045, 3.25), 4: (-1.25, 0.9009997844696045, 2.75)}  # LP에서 결정된 스폰 좌표
 
 # --- Subtask Plans ---
 SUBTASK_PLANS = {
     1: {
-        'name': 'subtask_01_Put_the_Bread_in_the_Fridge',
+        'name': 'subtask_01_Move_the_Fork_to_the_appropriate_position',
         'robot_id': 2,
-        'actions': ['gotoobject robot1 bread (1)', 'pickupobject robot1 bread countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 bread fridge (1)', 'closeobject robot1 fridge (1)'],
+        'actions': ['gotoobject robot1 fork (1)', 'pickupobject robot1 fork diningtable (1)', 'gotoobject robot1 countertop (1)', 'drophandobject robot1 fork countertop (1)'],
         'parallel_group': 0,
     },
     2: {
-        'name': 'subtask_02_Put_the_Lettuce_in_the_Fridge',
-        'robot_id': 4,
-        'actions': ['gotoobject robot1 lettuce (1)', 'pickupobject robot1 lettuce countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 lettuce fridge (1)', 'closeobject robot1 fridge (1)'],
-        'parallel_group': 1,
+        'name': 'subtask_02_Move_the_Spoon_to_the_appropriate_position',
+        'robot_id': 2,
+        'actions': ['gotoobject robot1 spoon (1)', 'pickupobject robot1 spoon diningtable (1)', 'gotoobject robot1 countertop (1)', 'drophandobject robot1 spoon countertop (1)'],
+        'parallel_group': 0,
     },
     3: {
-        'name': 'subtask_03_Put_the_Tomato_in_the_Fridge',
+        'name': 'subtask_03_Move_the_Mug_to_the_appropriate_position',
+        'robot_id': 4,
+        'actions': ['gotoobject robot1 mug (1)', 'pickupobject robot1 mug diningtable (1)', 'gotoobject robot1 coffeemachine (1)', 'openobject robot1 coffeemachine (1)', 'drophandobject robot1 mug coffeemachine (1)', 'closeobject robot1 coffeemachine (1)'],
+        'parallel_group': 0,
+    },
+    4: {
+        'name': 'subtask_04_Move_the_Lettuce_to_the_appropriate_position',
+        'robot_id': 3,
+        'actions': ['gotoobject robot1 lettuce (1)', 'pickupobject robot1 lettuce diningtable (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 lettuce fridge (1)', 'closeobject robot1 fridge (1)'],
+        'parallel_group': 0,
+    },
+    5: {
+        'name': 'subtask_05_Move_the_Tomato_to_the_appropriate_position',
         'robot_id': 1,
-        'actions': ['gotoobject robot1 tomato (1)', 'pickupobject robot1 tomato countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 tomato fridge (1)', 'closeobject robot1 fridge (1)'],
-        'parallel_group': 2,
+        'actions': ['gotoobject robot1 tomato (1)', 'pickupobject robot1 tomato diningtable (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 tomato fridge (1)', 'closeobject robot1 fridge (1)'],
+        'parallel_group': 1,
+    },
+    6: {
+        'name': 'subtask_06_Move_the_Toaster_to_the_appropriate_position',
+        'robot_id': 4,
+        'actions': ['gotoobject robot1 toaster (1)', 'pickupobject robot1 toaster diningtable (1)', 'gotoobject robot1 countertop (1)', 'drophandobject robot1 toaster countertop (1)'],
+        'parallel_group': 0,
     },
 }
 
-TASK_DESCRIPTION = 'Put the bread, lettuce, and tomato in the fridge'
+TASK_DESCRIPTION = 'Clear the table by placing items at their appropriate positions'
 
 
 def main():

@@ -1,101 +1,30 @@
 {
-  "task_name": "task",
   "nodes": [
     {
-      "id": 1,
-      "name": "subtask_01_Put_the_Bread_in_the_Fridge",
-      "objects": [
-        "robot1",
-        "bread",
-        "fridge",
-        "countertop",
-        "floor"
-      ],
-      "preconds": [
-        "Robot is not holding the bread.",
-        "Fridge is initially closed.",
-        "Bread is on the countertop."
-      ],
-      "effects": [
-        "Bread is placed inside the fridge.",
-        "Robot is not holding the bread.",
-        "Fridge is closed."
-      ]
-    },
-    {
-      "id": 2,
-      "name": "subtask_02_Put_the_Lettuce_in_the_Fridge",
-      "objects": [
-        "robot1",
-        "lettuce",
-        "fridge",
-        "kitchen",
-        "countertop",
-        "floor"
-      ],
-      "preconds": [
-        "Robot is in the kitchen.",
-        "Lettuce is on the countertop.",
-        "Fridge is on the floor and closed.",
-        "Robot is not holding the lettuce."
-      ],
-      "effects": [
-        "Lettuce is in the fridge.",
-        "Robot is not holding the lettuce.",
-        "Fridge is closed."
-      ]
-    },
-    {
       "id": 3,
-      "name": "subtask_03_Put_the_Tomato_in_the_Fridge",
+      "name": "subtask_03_Move_the_Mug_to_the_appropriate_position",
       "objects": [
         "robot1",
-        "tomato",
-        "fridge",
-        "countertop"
+        "mug",
+        "coffeemachine",
+        "diningtable",
+        "kitchen"
       ],
       "preconds": [
-        "Robot is not in action.",
-        "Robot is in the kitchen.",
-        "Tomato is on the countertop.",
-        "Fridge is closed.",
-        "Robot is not holding the tomato."
+        "Robot is not holding the mug.",
+        "Robot is not at the mug's location.",
+        "Mug is on the dining table.",
+        "Robot is in the kitchen."
       ],
       "effects": [
-        "Tomato is in the fridge.",
-        "Robot is not holding the tomato.",
-        "Fridge is closed."
+        "Mug is at the coffeemachine.",
+        "Robot is not holding the mug."
       ]
     }
   ],
-  "edges": [
-    {
-      "from_id": 1,
-      "to_id": 2,
-      "dependency_type": "resource",
-      "reason": "Shared object: fridge"
-    },
-    {
-      "from_id": 1,
-      "to_id": 3,
-      "dependency_type": "resource",
-      "reason": "Shared object: fridge"
-    },
-    {
-      "from_id": 2,
-      "to_id": 3,
-      "dependency_type": "resource",
-      "reason": "Shared object: fridge"
-    }
-  ],
+  "edges": [],
   "parallel_groups": {
     "0": [
-      1
-    ],
-    "1": [
-      2
-    ],
-    "2": [
       3
     ]
   }

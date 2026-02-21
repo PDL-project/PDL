@@ -1,0 +1,37 @@
+{
+  "task_idx": 0,
+  "agent_count": 4,
+  "assignment": {
+    "3": 4
+  },
+  "subtasks": [
+    {
+      "id": 3,
+      "title": "subtask_03_Move_the_Mug_to_the_appropriate_position",
+      "robot": 4
+    }
+  ],
+  "replanned": true,
+  "robot_spawn_positions": {
+    "1": [
+      -0.25,
+      0.9009996652603149,
+      1.0
+    ],
+    "2": [
+      -2.25,
+      0.9009997844696045,
+      2.25
+    ],
+    "3": [
+      -3.25,
+      0.9009997248649597,
+      1.25
+    ],
+    "4": [
+      -1.25,
+      0.9009997844696045,
+      3.25
+    ]
+  }
+}
