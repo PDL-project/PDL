@@ -1,0 +1,2 @@
+gotoobject robot1 drawer8 (1)
+openobject robot1 drawer8 (1)

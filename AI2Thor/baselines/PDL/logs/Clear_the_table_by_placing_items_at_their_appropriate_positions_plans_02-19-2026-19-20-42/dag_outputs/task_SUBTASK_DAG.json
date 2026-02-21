@@ -1,0 +1,441 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Move_the_Bowl_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "bowl",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Bowl is on the dining table",
+        "Robot is not holding the bowl"
+      ],
+      "effects": [
+        "Bowl is on the countertop",
+        "Robot is not holding the bowl"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Move_the_Bread_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "bread",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Bread is on the dining table",
+        "Robot is not holding the bread"
+      ],
+      "effects": [
+        "Bread is on the countertop",
+        "Robot is not holding the bread",
+        "Robot is not in action"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Move_the_CoffeeMachine_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "coffeeMachine",
+        "diningTable",
+        "counterTop"
+      ],
+      "preconds": [
+        "Robot is in the kitchen.",
+        "CoffeeMachine is on the diningTable.",
+        "Robot is not holding the CoffeeMachine."
+      ],
+      "effects": [
+        "CoffeeMachine is on the counterTop.",
+        "Robot is not holding the CoffeeMachine."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Move_the_Fork_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "fork",
+        "drawer1",
+        "diningtable",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is not inactive.",
+        "Robot is in the kitchen.",
+        "Fork is on the dining table.",
+        "Drawer is on the floor.",
+        "Robot is close to the drawer.",
+        "Robot is not holding the fork."
+      ],
+      "effects": [
+        "Fork is in the drawer.",
+        "Robot is close to the drawer."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Move_the_Mug_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "mug",
+        "diningTable",
+        "cabinet1"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Mug is on the dining table",
+        "Cabinet is on the floor",
+        "Robot is close to the cabinet",
+        "Robot is not holding the mug"
+      ],
+      "effects": [
+        "Mug is in the cabinet",
+        "Robot is close to the cabinet"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Move_the_Pan_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "pan",
+        "diningTable",
+        "stoveBurner"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Pan is on the dining table.",
+        "Robot is not holding the pan."
+      ],
+      "effects": [
+        "Pan is at the stove burner.",
+        "Robot is not holding the pan."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "subtask_07_Move_the_Spoon_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "spoon",
+        "drawer1",
+        "diningtable",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is at the floor.",
+        "Spoon is on the dining table.",
+        "Drawer is on the floor.",
+        "Robot is close to the drawer.",
+        "Robot is not holding the spoon."
+      ],
+      "effects": [
+        "Spoon is in the drawer.",
+        "Robot is close to the drawer."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "subtask_08_Move_the_Toaster_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "toaster",
+        "diningTable",
+        "counterTop"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Toaster is on the dining table.",
+        "Robot is not holding the toaster."
+      ],
+      "effects": [
+        "Toaster is on the counter top.",
+        "Robot is not holding the toaster."
+      ]
+    },
+    {
+      "id": 9,
+      "name": "subtask_09_Move_the_Tomato_to_its_appropriate_position",
+      "objects": [
+        "robot1",
+        "tomato",
+        "fridge",
+        "diningtable"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Tomato is on the dining table",
+        "Fridge is closed",
+        "Robot is not holding the tomato"
+      ],
+      "effects": [
+        "Tomato is in the fridge",
+        "Robot is not holding the tomato"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 7,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 7,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 3,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 3,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 3,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 3,
+      "to_id": 7,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 3,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 3,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 7,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 5,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 5,
+      "to_id": 7,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 5,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 5,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 6,
+      "to_id": 7,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 6,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 6,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 7,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 7,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 8,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same location - cannot be manipulated in parallel"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ],
+    "2": [
+      3
+    ],
+    "3": [
+      4
+    ],
+    "4": [
+      5
+    ],
+    "5": [
+      6
+    ],
+    "6": [
+      7
+    ],
+    "7": [
+      8
+    ],
+    "8": [
+      9
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "subtask_name": "subtask_02_Open_drawer2",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "gotoobject robot1 drawer2 (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "drawer2"
+      ],
+      "parallel_group": 0
+    },
+    {
+      "id": 1,
+      "action": "openobject robot1 drawer2 (1)",
+      "action_type": "openobject",
+      "robot": "robot1",
+      "objects": [
+        "drawer2"
+      ],
+      "parallel_group": 1
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 0,
+      "to_id": 1,
+      "dependency_type": "causal"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      0
+    ],
+    "1": [
+      1
+    ]
+  },
+  "binding_edges": []
+}

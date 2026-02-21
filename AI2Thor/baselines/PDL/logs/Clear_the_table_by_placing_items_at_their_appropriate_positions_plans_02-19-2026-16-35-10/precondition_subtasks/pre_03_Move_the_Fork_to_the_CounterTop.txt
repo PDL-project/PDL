@@ -1,0 +1,50 @@
+# Task Description: Move the Fork to the CounterTop.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at fork location
+#2. Robot not holding fork
+
+# SubTask 3: Move the Fork to the CounterTop.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: Fork(Location=DiningTable), CounterTop(Location=Floor)
+
+GoToObject(robot1, Fork)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Fork)
+
+PickupObject(robot1, Fork, DiningTable)
+   Preconditions:
+     (at-location Fork DiningTable)
+     (at robot1 Fork)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Fork)
+
+GoToObject(robot1, CounterTop)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 CounterTop)
+
+PutObject(robot1, Fork, CounterTop)
+   Preconditions:
+     (holding robot1 Fork)
+     (at robot1 CounterTop)
+     (not (inaction robot1))
+     (not (is-fridge CounterTop))
+     (not (object-close robot1 CounterTop))
+   Effects:
+     (at-location Fork CounterTop)
+     (not (holding robot1 Fork))
+     (not (inaction robot1))
+
+Goal condition:
+(at-location Fork CounterTop)
+
+# Task Move the Fork to the CounterTop is done.

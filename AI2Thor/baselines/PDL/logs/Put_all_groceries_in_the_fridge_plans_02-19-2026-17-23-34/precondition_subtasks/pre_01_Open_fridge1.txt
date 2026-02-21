@@ -1,0 +1,17 @@
+# SubTask 1: Open fridge1.
+    Skills Required: GoToObject, OpenObject
+    Related Objects: fridge1(Location=floor)
+
+GoToObject(robot1, fridge1)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 fridge1)
+
+OpenObject(robot1, fridge1)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 fridge1)
+   Effects:
+     (object-open robot1 fridge1)
+     (fridge-open fridge1)

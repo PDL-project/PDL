@@ -1,0 +1,33 @@
+=== EXAMPLE OUTPUT FORMAT START ===
+# Task Description: Open the sixth Drawer.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at drawer location
+
+# SubTask 6: Open the sixth Drawer.
+    Skills Required: GoToObject, OpenObject
+    Related Objects: drawer(Location=floor, position={'x': 0.949999988079071, 'y': 0.7081000208854675, 'z': -2.200200080871582})
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+     (not (object-close robot1 drawer))
+
+Goal condition: 
+(object-open robot1 drawer)
+
+# Task Open the sixth Drawer is done.
+=== EXAMPLE OUTPUT FORMAT END ===

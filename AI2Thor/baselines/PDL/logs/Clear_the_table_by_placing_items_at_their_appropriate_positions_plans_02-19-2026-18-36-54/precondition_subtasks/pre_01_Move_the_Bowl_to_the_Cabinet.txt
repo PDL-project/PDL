@@ -1,0 +1,66 @@
+# Task Description: Move the Bowl to the Cabinet.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at bowl location
+#2. Robot not holding bowl
+#3. Cabinet is initially closed
+
+# SubTask 1: Move the Bowl to the Cabinet.
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: Bowl(Location=DiningTable), Cabinet(Location=Floor)
+
+GoToObject(robot1, Bowl)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Bowl)
+
+PickupObject(robot1, Bowl, DiningTable)
+   Preconditions:
+     (at-location Bowl DiningTable)
+     (at robot1 Bowl)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Bowl)
+
+GoToObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Cabinet)
+
+OpenObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Cabinet)
+   Effects:
+     (object-open robot1 Cabinet)
+     (not (object-close robot1 Cabinet))
+
+PutObject(robot1, Bowl, Cabinet)
+   Preconditions:
+     (holding robot1 Bowl)
+     (at robot1 Cabinet)
+     (not (inaction robot1))
+     (not (object-close robot1 Cabinet))
+   Effects:
+     (at-location Bowl Cabinet)
+     (not (holding robot1 Bowl))
+
+CloseObject(robot1, Cabinet)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Cabinet)
+     (object-open robot1 Cabinet)
+   Effects:
+     (object-close robot1 Cabinet)
+     (not (object-open robot1 Cabinet))
+
+Goal condition:
+(at-location Bowl Cabinet)
+
+# Task Move the Bowl to the Cabinet is done.

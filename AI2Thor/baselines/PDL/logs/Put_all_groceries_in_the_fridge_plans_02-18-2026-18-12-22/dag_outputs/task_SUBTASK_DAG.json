@@ -1,0 +1,139 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Put_the_Apple_in_the_Fridge",
+      "objects": [
+        "apple",
+        "fridge"
+      ],
+      "preconds": [
+        "Robot is in the kitchen.",
+        "Apple is on the countertop.",
+        "Fridge is on the floor and closed.",
+        "Robot is not holding the apple."
+      ],
+      "effects": [
+        "Apple is inside the fridge.",
+        "Fridge is closed.",
+        "Robot is not holding the apple."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Put_the_Bread_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "bread",
+        "fridge",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not holding the bread.",
+        "Fridge is initially closed.",
+        "Bread is on the countertop."
+      ],
+      "effects": [
+        "Bread is placed inside the fridge.",
+        "Robot is not holding the bread.",
+        "Fridge is closed."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Put_the_Lettuce_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "lettuce",
+        "fridge",
+        "kitchen",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is in the kitchen.",
+        "Lettuce is on the countertop.",
+        "Fridge is on the floor and closed.",
+        "Robot is not holding the lettuce."
+      ],
+      "effects": [
+        "Lettuce is in the fridge.",
+        "Fridge is closed.",
+        "Robot is not holding the lettuce."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Put_the_Tomato_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "tomato",
+        "fridge",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not holding the tomato.",
+        "Fridge is initially closed.",
+        "Tomato is on the countertop."
+      ],
+      "effects": [
+        "Tomato is placed inside the fridge.",
+        "Robot is not holding the tomato.",
+        "Fridge is closed."
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Fridge is a shared object"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Fridge is a shared object"
+    },
+    {
+      "from_id": 1,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Fridge is a shared object"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Fridge is a shared object"
+    },
+    {
+      "from_id": 2,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Fridge is a shared object"
+    },
+    {
+      "from_id": 3,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Fridge is a shared object"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ],
+    "2": [
+      3
+    ],
+    "3": [
+      4
+    ]
+  }
+}

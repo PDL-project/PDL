@@ -1,0 +1,31 @@
+# Task Description: Open the fourth Drawer.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at drawer location
+
+# SubTask 4: Open the fourth Drawer.
+    Skills Required: GoToObject, OpenObject
+    Related Objects: drawer(Location=floor, position={'x': -1.5609999895095825, 'y': 0.8396000266075134, 'z': 0.2045000046491623})
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+     (not (object-close robot1 drawer))
+
+Goal condition:
+(object-open robot1 drawer)
+
+# Task Open the fourth Drawer is done.

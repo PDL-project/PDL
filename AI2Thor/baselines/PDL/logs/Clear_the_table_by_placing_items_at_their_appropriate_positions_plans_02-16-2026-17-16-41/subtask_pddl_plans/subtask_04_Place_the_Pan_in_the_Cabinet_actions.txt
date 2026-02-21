@@ -1,0 +1,6 @@
+gotoobject robot1 pan (1)
+pickupobject robot1 pan diningtable (1)
+gotoobject robot1 cabinet (1)
+openobject robot1 cabinet (1)
+drophandobject robot1 pan cabinet (1)
+closeobject robot1 cabinet (1)

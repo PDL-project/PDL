@@ -1,0 +1,32 @@
+# Task Description: Close fridge1.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at fridge1 location
+#2. fridge1 is fridge, and initially open
+
+# SubTask 6: Close fridge1.
+    Skills Required: GoToObject, CloseObject
+    Related Objects: fridge1(Location=floor)
+
+GoToObject(robot1, fridge1)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 fridge1)
+
+CloseObject(robot1, fridge1)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 fridge1)
+   Effects:
+     (object-close robot1 fridge1)
+     (not (fridge-open fridge1))
+
+Goal condition:
+(object-close robot1 fridge1)
+
+# Task Close fridge1 is done.

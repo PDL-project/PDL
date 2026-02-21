@@ -339,7 +339,7 @@ class DAGGenerator:
         for g, ids in sorted(group_nodes.items()):
             sg = pydot.Cluster(
                 graph_name=f"cluster_g{g}",
-                label=f"병렬실행 Group {g}",
+                label=f"병렬실행 그룹 {g}",
                 color="#DDDDDD",
                 style="rounded",
                 fontname="Helvetica",
@@ -652,7 +652,7 @@ class DAGGenerator:
         for g, ids in sorted(group_nodes.items()):
             sg = pydot.Cluster(
                 graph_name=f"cluster_sub_g{g}",
-                label=f"Subtask Group {g}",
+                label=f"서브테스크 단위 병렬실행 그룹 {g}",
                 color="#DDDDDD",
                 style="rounded",
                 fontname="Helvetica",

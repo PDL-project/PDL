@@ -1,0 +1,30 @@
+```pddl
+(define (problem move-tomato)
+  (:domain allactionrobot)
+
+  (:objects
+    robot1 - robot
+    tomato - object
+    fridge - object
+    diningtable - object
+    floor - object
+    kitchen - object
+  )
+
+  (:init
+    (not (inaction robot1))
+    (at robot1 kitchen)
+    (at-location tomato diningtable)
+    (at-location fridge floor)
+
+    (is-fridge fridge)
+    (not (fridge-open fridge))
+    (not (holding robot1 tomato))
+  )
+
+  (:goal (and
+    (at-location tomato fridge)
+    (not (holding robot1 tomato))
+  ))
+)
+```

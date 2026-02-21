@@ -1,0 +1,28 @@
+(define (problem move-coffeemachine-to-countertop)
+  (:domain allactionrobot)
+
+  (:objects
+    robot1 - robot
+    coffeemachine - object
+    diningtable - object
+    countertop - object
+    kitchen - object
+  )
+
+  (:init
+    (= (total-cost) 0)
+    (not (inaction robot1))
+    (at robot1 kitchen)
+    (at-location coffeemachine diningtable)
+    (at-location diningtable kitchen)
+    (at-location countertop kitchen)
+    (not (holding robot1 coffeemachine))
+  )
+
+  (:goal (and
+    (at-location coffeemachine countertop)
+    (not (holding robot1 coffeemachine))
+  ))
+
+  (:metric minimize (total-cost))
+)

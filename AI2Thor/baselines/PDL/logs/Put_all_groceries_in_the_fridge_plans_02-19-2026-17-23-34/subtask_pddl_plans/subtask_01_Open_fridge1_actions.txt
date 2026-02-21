@@ -1,0 +1,2 @@
+gotoobject robot1 fridge1 (1)
+openfridge robot1 fridge1 (1)
