@@ -90,6 +90,7 @@ class SubTaskExecutionResult:
     subtask_id: int # 실행한 서브태스크 ID
     success: bool # 성공 여부
     error_message: Optional[str] = None # 실패 시 에러 메시지
+    completed_actions: Optional[List[str]] = None # 실패 전까지 성공한 액션 목록
 
 # -----------------------------
 # 이동
@@ -161,6 +162,7 @@ class MultiRobotExecutor:
         self._thread_subtask_id: Dict[int, int] = {}
         self._subtask_failed: Dict[int, bool] = {}
         self._subtask_last_error: Dict[int, str] = {}
+        self._subtask_completed_actions: Dict[int, List[str]] = {}  # 서브태스크별 성공한 액션 목록
         self._subtask_results: Dict[int, SubTaskExecutionResult] = {}
         # 실시간 상태 반영용 (execute_in_ai2thor_with_feedback 호출 시에만 설정)
         self._feedback_state_store: Optional[Any] = None
@@ -1815,6 +1817,34 @@ class MultiRobotExecutor:
     # AI2-THOR 관리 함수 모음
     # -----------------------------
 
+    def get_live_positions(self) -> Tuple[Dict[int, Tuple[float, float, float]], Dict[str, Tuple[float, float, float]]]:
+        """
+        현재 실행 중인 씬에서 로봇/오브젝트 좌표를 가져옴 (새 컨트롤러를 만들지 않음).
+
+        Returns:
+            robot_positions: {robot_id(1-based): (x, y, z)}
+            object_positions: {object_name_lower: (x, y, z)}
+        """
+        if self.controller is None:
+            raise RuntimeError("[get_live_positions] No active controller")
+
+        robot_positions: Dict[int, Tuple[float, float, float]] = {}
+        for i in range(self.no_robot):
+            try:
+                pos = self.controller.last_event.events[i].metadata["agent"]["position"]
+                robot_positions[i + 1] = (pos["x"], pos["y"], pos["z"])
+            except (IndexError, KeyError) as e:
+                print(f"[get_live_positions] Robot {i+1} position error: {e}")
+
+        object_positions: Dict[str, Tuple[float, float, float]] = {}
+        for obj in self.controller.last_event.metadata.get("objects", []):
+            name = obj["objectType"].strip().lower()
+            p = obj.get("position", {})
+            object_positions[name] = (p.get("x", 0.0), p.get("y", 0.0), p.get("z", 0.0))
+
+        print(f"[get_live_positions] Collected {len(robot_positions)} robot positions, {len(object_positions)} object positions (live)")
+        return robot_positions, object_positions
+
     @staticmethod
     def spawn_and_get_positions(
         floor_plan: int, agent_count: int
@@ -2074,16 +2104,28 @@ class MultiRobotExecutor:
         print(f"\n[Subtask {plan.subtask_id}] {plan.subtask_name} -> Robot{plan.robot_id}")
 
         try:
+            self._subtask_completed_actions[plan.subtask_id] = []
+
             for i, action in enumerate(plan.actions):
+                # 이미 실패한 서브태스크의 남은 액션은 건너뜀
+                if self._subtask_failed.get(plan.subtask_id, False):
+                    remaining = len(plan.actions) - i
+                    print(f"[Subtask {plan.subtask_id}] Aborting remaining {remaining} action(s) due to earlier failure")
+                    break
                 print(f"[Robot{plan.robot_id}] Action {i+1}/{len(plan.actions)}: {action}")
                 self._execute_pddl_action(agent_id, action)
+                # 액션 실행 후 실패가 발생하지 않았으면 완료 목록에 추가
+                if not self._subtask_failed.get(plan.subtask_id, False):
+                    self._subtask_completed_actions[plan.subtask_id].append(action)
 
             success = not self._subtask_failed.get(plan.subtask_id, False)
             err = self._subtask_last_error.get(plan.subtask_id, "")
+            completed = self._subtask_completed_actions.get(plan.subtask_id, [])
             self._subtask_results[plan.subtask_id] = SubTaskExecutionResult(
                 subtask_id=plan.subtask_id,
                 success=success,
                 error_message=err or None,
+                completed_actions=completed if completed else None,
             )
             if store is not None:
                 store.update_subtask_on_completion(
@@ -2091,7 +2133,10 @@ class MultiRobotExecutor:
                     success=success,
                     error_message=err or None,
                     effects=None,
+                    completed_actions=completed if completed else None,
                 )
+            if not success and completed:
+                print(f"[Subtask {plan.subtask_id}] Partially completed: {len(completed)}/{len(plan.actions)} actions succeeded")
             print(f"[Subtask {plan.subtask_id}] Completed! success={success}")
 
         finally:
@@ -2186,9 +2231,12 @@ class MultiRobotExecutor:
         self,
         floor_plan: int,
         task_name: str = "task",
+        task_description: Optional[str] = None,
         state_store: Optional[Any] = None,
+        on_subtask_failed: Optional[Any] = None,
     ) -> Dict[int, SubTaskExecutionResult]:
         """피드백 루프용: 서브태스크를 그룹별·순차 실행하고, 서브태스크별 성공/실패 결과를 반환.
+        on_subtask_failed: 실패 즉시 호출되는 콜백. signature: fn(result) -> bool
         state_store가 주어지면 개별 서브태스크 완료 시마다 즉시 상태를 반영(실시간 스토어 반영).
         """
         if not self.assignment or not self.parallel_groups or not self.subtask_plans:
@@ -2197,6 +2245,7 @@ class MultiRobotExecutor:
         self._subtask_failed = {}
         self._subtask_results = {}
         self._subtask_last_error = {}
+        self._subtask_completed_actions = {}
 
         if state_store is not None:
             state_store.init_from_dag(self.parallel_groups)
@@ -2206,6 +2255,8 @@ class MultiRobotExecutor:
 
         agent_count = max(self.assignment.values()) if self.assignment else 1
         self.start_ai2thor(floor_plan=floor_plan, agent_count=agent_count)
+        if task_description:
+            self._init_checker(task_description, self.scene_name)
 
         groups_to_plans: Dict[int, List[SubtaskPlan]] = defaultdict(list)
         for sid, p in self.subtask_plans.items():
@@ -2215,6 +2266,8 @@ class MultiRobotExecutor:
         print("[EXEC] Multi-Robot Execution (Feedback Mode: sequential per subtask)")
         if state_store is not None:
             print("[EXEC] Real-time state store: ON")
+        if on_subtask_failed is not None:
+            print("[EXEC] Immediate replan callback: ON")
         print("=" * 60)
 
         try:
@@ -2224,11 +2277,32 @@ class MultiRobotExecutor:
                     t = threading.Thread(target=self._run_subtask, args=(p,), daemon=True)
                     t.start()
                     t.join()
-                    while len(self.action_queue) > 0:
+                    # 해당 subtask 실행 후 큐 소진까지 대기
+                    while self._queue_total_len() > 0:
                         time.sleep(0.3)
+                    # 실패 즉시 콜백 호출
+                    result = self._subtask_results.get(p.subtask_id)
+                    if result and (not result.success) and on_subtask_failed is not None:
+                        try:
+                            on_subtask_failed(result)
+                        except Exception as cb_e:
+                            print(f"[Feedback] on_subtask_failed callback error: {cb_e}")
                 print(f"[Group {gid}] Completed")
-            while len(self.action_queue) > 0:
+            while self._queue_total_len() > 0:
                 time.sleep(0.3)
+            if self.checker is not None:
+                try:
+                    coverage = self.checker.get_coverage()
+                    transport_rate = self.checker.get_transport_rate()
+                    finished = self.checker.check_success()
+                    print(f"Coverage: {coverage}, Transport Rate: {transport_rate}, Finished: {finished}")
+                    completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
+                    expected = sorted(getattr(self.checker, "subtasks", []))
+                    missing = sorted(set(expected) - set(completed))
+                    print(f"[Checker] Completed ({len(completed)}): {completed}")
+                    print(f"[Checker] Missing ({len(missing)}): {missing}")
+                except Exception:
+                    pass
             return dict(self._subtask_results)
         finally:
             self._feedback_state_store = None

@@ -1,0 +1,47 @@
+# Task Description: Move the CoffeeMachine to its appropriate position.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at CoffeeMachine location
+#2. Robot not holding CoffeeMachine
+
+# SubTask 1: Move the CoffeeMachine to its appropriate position.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: CoffeeMachine(Location=DiningTable), CounterTop(Location=Floor)
+
+GoToObject(robot1, CoffeeMachine)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 CoffeeMachine)
+
+PickupObject(robot1, CoffeeMachine, DiningTable)
+   Preconditions:
+     (at-location CoffeeMachine DiningTable)
+     (at robot1 CoffeeMachine)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 CoffeeMachine)
+
+GoToObject(robot1, CounterTop)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 CounterTop)
+
+PutObject(robot1, CoffeeMachine, CounterTop)
+   Preconditions:
+     (holding robot1 CoffeeMachine)
+     (at robot1 CounterTop)
+     (not (inaction robot1))
+   Effects:
+     (at-location CoffeeMachine CounterTop)
+     (not (holding robot1 CoffeeMachine))
+
+Goal condition:
+(at-location CoffeeMachine CounterTop)
+
+# Task Move the CoffeeMachine to its appropriate position is done.

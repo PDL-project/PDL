@@ -1,0 +1,49 @@
+# Task Description: Move the Spoon to its appropriate position.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at spoon location
+#2. Robot not holding spoon
+
+# SubTask 5: Move the Spoon to its appropriate position.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: Spoon(Location=DiningTable), Drawer(Location=Floor)
+
+GoToObject(robot1, Spoon)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Spoon)
+
+PickupObject(robot1, Spoon, DiningTable)
+   Preconditions:
+     (at-location Spoon DiningTable)
+     (at robot1 Spoon)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Spoon)
+
+GoToObject(robot1, Drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Drawer)
+
+PutObject(robot1, Spoon, Drawer)
+   Preconditions:
+     (holding robot1 Spoon)
+     (at robot1 Drawer)
+     (not (inaction robot1))
+     (not (is-fridge Drawer))
+     (not (object-close robot1 Drawer))
+   Effects:
+     (at-location Spoon Drawer)
+     (not (holding robot1 Spoon))
+
+Goal condition:
+(at-location Spoon Drawer)
+
+# Task Move the Spoon to its appropriate position is done.

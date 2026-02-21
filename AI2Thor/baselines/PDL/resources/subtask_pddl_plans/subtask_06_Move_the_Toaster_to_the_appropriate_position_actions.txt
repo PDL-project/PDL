@@ -1,0 +1,2 @@
+gotoobject robot1 diningtable (1)
+gotoobject robot1 countertop (1)

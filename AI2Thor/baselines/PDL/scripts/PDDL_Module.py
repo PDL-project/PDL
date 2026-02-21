@@ -830,58 +830,75 @@ class TaskManager:
                     print("\n[Step 7] Running execution with feedback loop...")
                     task_name_fb = "task"
                     state_store = SharedTaskStateStore(self.base_path, task_name_fb)
-                    for retry in range(max_replan_retries + 1):
-                        results = executor.execute_in_ai2thor_with_feedback(
-                            floor_plan, task_name=task_name_fb, state_store=state_store
-                        )
-                        # 성공한 서브태스크의 effects를 DAG에서 로드해 스토어에 반영 (로컬 피드백 시 재계획에 사용)
+                    replan_retry_count = [0]
+
+                    def _on_subtask_failed(failed_result):
+                        """재계획 시도 후 새 플랜 로드 여부 반환."""
+                        if replan_retry_count[0] >= max_replan_retries:
+                            print(f"[Feedback] Max replan retries ({max_replan_retries}) reached, skipping replan")
+                            return False
+
+                        print(f"[Feedback] Immediate replan triggered by subtask {failed_result.subtask_id}")
+                        replan_retry_count[0] += 1
+
+                        current_results = dict(executor._subtask_results)
                         dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
                         effects_for_success = {
                             sid: dag_effects.get(sid, [])
-                            for sid, r in results.items()
+                            for sid, r in current_results.items()
                             if r.success and dag_effects
                         }
                         sync_execution_results_to_store(
-                            state_store, results, effects_by_subtask_id=effects_for_success
+                            state_store, current_results, effects_by_subtask_id=effects_for_success
                         )
-                        failed = [sid for sid, r in results.items() if not r.success]
-                        if not failed:
-                            print("[Feedback] All subtasks succeeded.")
-                            break
-                        if retry >= max_replan_retries:
-                            print("[Feedback] Max replan retries reached.")
-                            break
+
                         replan_result = self.run_feedback_replan(
                             task_idx=task_idx,
                             task_name=task_name_fb,
-                            execution_results=results,
+                            execution_results=current_results,
                             domain_content=domain_content,
                             objects_ai=objects_ai,
                             state_store=state_store,
                             task_robot_ids=task_robot_ids,
                             floor_plan=floor_plan,
+                            executor=executor,
                         )
+
                         if replan_result == "no_change":
-                            break
-                        if replan_result == "full_replan_requested":
-                            self._validate_and_plan()
-                            self.generate_dag()
-                            executor.load_assignment(task_idx)
-                            executor.load_subtask_dag(task_name_fb)
-                            executor.load_plan_actions()
-                        elif replan_result == "fully_replanned":
+                            print("[Feedback] Replan: no_change")
+                            return False
+                        if replan_result == "fully_replanned":
+                            print("[Feedback] Replan: fully_replanned")
                             success = self.reload_executor_with_integrated_dag(
                                 executor=executor,
                                 task_idx=task_idx,
                                 task_name=task_name_fb
                             )
-                            
-                            if not success:
-                                print("[Feedback] Failed to reload executor")
-                                break
-                            print("[Feedback] Ready for re-execution with integrated DAG")
-                        else:
-                            executor.load_plan_actions()
+                            return bool(success)
+                        return False
+
+                    results = executor.execute_in_ai2thor_with_feedback(
+                        floor_plan,
+                        task_name=task_name_fb,
+                        task_description=task,
+                        state_store=state_store,
+                        on_subtask_failed=_on_subtask_failed,
+                    )
+                    # 실행 완료 후 최종 상태 스토어 반영
+                    dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
+                    effects_for_success = {
+                        sid: dag_effects.get(sid, [])
+                        for sid, r in results.items()
+                        if r.success and dag_effects
+                    }
+                    sync_execution_results_to_store(
+                        state_store, results, effects_by_subtask_id=effects_for_success
+                    )
+                    failed = [sid for sid, r in results.items() if not r.success]
+                    if not failed:
+                        print("[Feedback] All subtasks succeeded.")
+                    else:
+                        print(f"[Feedback] {len(failed)} subtask(s) still failed: {failed}")
                     print("✓ Feedback loop finished.")
 
         except Exception as e:
@@ -1621,6 +1638,7 @@ class TaskManager:
         task_robot_ids: Optional[List[int]] = None,
         floor_plan: Optional[int] = None,
         max_subtask_replan_attempts: int = 2,
+        executor: Optional[Any] = None,
     ) -> str:
         """
         재계획: decomposition → DAG 통합 → LP 재할당 → 재실행 준비
@@ -1762,7 +1780,8 @@ class TaskManager:
                             task_idx=task_idx,
                             task_name=task_name,
                             task_robot_ids=task_robot_ids,
-                            floor_plan=floor_plan
+                            floor_plan=floor_plan,
+                            executor=executor,
                         )
                         
                         if new_assignment is None:
@@ -1940,6 +1959,8 @@ class TaskManager:
     ## Failure Information
     - Failed Subtask ID: {context.failed_subtask_id}
     - Failure Reason: {context.failure_reason}
+    - Actions completed before failure: {chr(10).join(context.completed_actions) if context.completed_actions else "(none)"}
+    - IMPORTANT: The completed actions above have ALREADY been executed. Their effects are real (e.g., if pickupobject succeeded, the robot IS holding the object).
     - This suggests the approach needs to be changed
 
     ## Original Goals (to be re-achieved with new approach)
@@ -2426,17 +2447,19 @@ class TaskManager:
         task_idx: int,
         task_name: str,
         task_robot_ids: List[int],
-        floor_plan: Optional[int] = None
+        floor_plan: Optional[int] = None,
+        executor: Optional[Any] = None,
     ) -> Optional[Dict[int, int]]:
         """
         재계획 후 LP 작업 할당 재수행
-        
+
         Args:
             task_idx: 작업 인덱스
             task_name: 작업 이름
             task_robot_ids: 사용 가능한 로봇 ID 리스트
             floor_plan: FloorPlan 번호 (거리 기반 최적화용)
-        
+            executor: 실행 중인 MultiRobotExecutor (있으면 live 위치 사용)
+
         Returns:
             Dict[subtask_id, robot_id]: 새 작업 할당 또는 None
         """
@@ -2515,11 +2538,14 @@ class TaskManager:
             robot_positions = None
             object_positions = None
             
-            if floor_plan is not None:
+            if executor is not None and executor.controller is not None:
+                robot_positions, object_positions = executor.get_live_positions()
+                print(f"  ✓ Robot positions (live): {robot_positions}")
+            elif floor_plan is not None:
                 robot_positions, object_positions = MultiRobotExecutor.spawn_and_get_positions(
                     floor_plan, len(task_robot_ids)
                 )
-                print(f"  ✓ Robot positions: {robot_positions}")
+                print(f"  ✓ Robot positions (new scene): {robot_positions}")
             
             # 6. LP 작업 할당 실행
             from LP_Module import assign_subtasks_cp_sat
@@ -2740,7 +2766,9 @@ def main():
 
             objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(floor_plan_num, task_description=task_str)}"
 
-            task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num)
+            task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num,
+                run_with_feedback=getattr(args, "run_with_feedback", False),
+                max_replan_retries=getattr(args, "max_replan_retries", 2))
 
             if args.log_results:
                 task_manager.log_results(

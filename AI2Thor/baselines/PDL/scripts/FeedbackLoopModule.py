@@ -103,10 +103,12 @@ class SharedTaskStateStore:
         success: bool,
         error_message: Optional[str] = None,
         effects: Optional[List[str]] = None,
+        completed_actions: Optional[List[str]] = None,
     ) -> None:
         """
         개별 서브태스크 하나가 끝날 때마다 호출. 즉시 상태 반영 후 공유 DB에 저장.
         effects: 성공 시에만 전달하며, 불변으로 저장됨.
+        completed_actions: 실패 전까지 성공적으로 실행된 액션 목록 (부분 effect 추적용).
         """
         state = _state_from_success(success)
         with self._lock:
@@ -115,7 +117,9 @@ class SharedTaskStateStore:
             self._store[subtask_id]["state"] = state.value
             self._store[subtask_id]["error_message"] = error_message if not success else None
             if success and effects is not None:
-                self._store[subtask_id]["effects"] = list(effects)  # 저장 시 복사본으로 불변성 유지
+                self._store[subtask_id]["effects"] = list(effects)
+            if completed_actions is not None:
+                self._store[subtask_id]["completed_actions"] = list(completed_actions)
             self._persist_locked()
 
     def set_running(self, subtask_id: int) -> None:
@@ -184,6 +188,12 @@ class SharedTaskStateStore:
             rec = self._store.get(subtask_id, {})
             return rec.get("error_message"), rec.get("state")
 
+    def get_completed_actions(self, subtask_id: int) -> Optional[List[str]]:
+        """실패 전까지 성공적으로 실행된 액션 목록 반환."""
+        with self._lock:
+            rec = self._store.get(subtask_id, {})
+            return rec.get("completed_actions")
+
     def get_group_state(
         self, group_id: int, subtask_ids_in_group: List[int]
     ) -> Tuple[List[int], List[int], List[int]]:
@@ -249,11 +259,13 @@ class GroupAgent:
         domain_content: str,
         problem_content: str,
         success_effects_context: Optional[str] = None,
+        completed_actions: Optional[List[str]] = None,
         max_tokens: int = 1500,
     ) -> List[str]:
         """
         실패한 서브태스크에 대해 LLM으로 대안 액션 시퀀스 생성.
         success_effects_context: 이미 성공한 다른 서브태스크의 effects (재계획 시 반영용).
+        completed_actions: 실패 전까지 성공적으로 실행된 액션 목록.
         반환: PDDL plan 형식과 동일한 액션 문자열 리스트.
         """
         actions_str = "\n".join(current_actions) if current_actions else "(none)"
@@ -264,8 +276,20 @@ class GroupAgent:
 {success_effects_context.strip()}
 
 """
+        completed_section = ""
+        if completed_actions:
+            completed_str = "\n".join(completed_actions)
+            completed_section = f"""
+## Actions already executed successfully (these effects are now part of the current state)
+{completed_str}
+
+IMPORTANT: The above actions were already executed and their effects are real.
+For example, if "pickupobject robot1 mug diningtable" was completed, the robot is NOW holding the mug.
+Your new plan must account for this current state — do NOT repeat these actions.
+
+"""
         prompt = f"""You are a Subtask Manager (Group Agent). You manage one SUBTASK. The subtask failed during execution. Propose a NEW sequence of primitive PDDL actions to achieve the SAME subtask goal, avoiding the cause of failure.
-{effects_section}## Subtask
+{effects_section}{completed_section}## Subtask
 - ID: {subtask_id}
 - Name: {subtask_name}
 
@@ -284,7 +308,8 @@ class GroupAgent:
 ## Rules
 - Output ONLY one action per line, in the same format as the current plan (e.g. "gotoobject robot1 apple (1)").
 - Use the same domain actions and object names from the problem.
-- Take into account the "Already achieved" effects above when planning (preconditions already satisfied).
+- Take into account the "Already achieved" effects and "Actions already executed" above.
+- Do not repeat actions that were already successfully executed.
 - Do not include any explanation, only the action lines.
 """
         if "gpt" in self.gpt_version.lower():
@@ -315,12 +340,14 @@ class ReplanContext:
         failed_subtask_id: int,
         failure_reason: str,
         remaining_pending_ids: List[int],
+        completed_actions: Optional[List[str]] = None,
     ):
         self.local_env = local_env
         self.success_effects = success_effects  # 불변 유지
         self.failed_subtask_id = failed_subtask_id
         self.failure_reason = failure_reason
         self.remaining_pending_ids = remaining_pending_ids
+        self.completed_actions = completed_actions  # 실패 전까지 성공한 액션 목록
 
 
 class PartialReplanner:
@@ -357,12 +384,14 @@ class PartialReplanner:
         failed_id = failed_ids[0]
         err, _ = self.store.get_failure_info(failed_id)
         success_effects = self.store.get_success_effects_immutable()
+        completed_actions = self.store.get_completed_actions(failed_id)
         return ReplanContext(
             local_env=local_env,
             success_effects=success_effects,
             failed_subtask_id=failed_id,
             failure_reason=err or "Unknown error",
             remaining_pending_ids=pending_ids,
+            completed_actions=completed_actions,
         )
 
     def replan_group(
@@ -398,6 +427,7 @@ class PartialReplanner:
             error_message=context.failure_reason,
             domain_content=domain_content,
             problem_content=problem_content,
+            completed_actions=context.completed_actions,
         )
         return bool(new_actions)
 
