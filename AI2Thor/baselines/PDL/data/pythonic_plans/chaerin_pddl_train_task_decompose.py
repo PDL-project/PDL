@@ -86,28 +86,3 @@
     Related Object: plate(Location=counterTop), bread(Location=diningTable), lettuce(Location=diningTable), tomato(Location=counterTop)
 
 # Task Make a sandwich with sliced lettuce, sliced tomato, sliced bread and serve it on a washed plate is done.
-
-
-# Task Description: Move category-A items to storage-X and category-B items to storage-Y.
-
-# This is a TEMPLATE EXAMPLE to show decomposition shape, not a fixed object list.
-# Build category-A/category-B from CURRENT ENVIRONMENT OBJECTS and task wording.
-# If multiple instances exist, enumerate all (item1,item2..., storage1,storage2...).
-
-# SubTask 1: Place categoryA_item1 into storageX_1.
-    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
-    Related Objects: categoryA_item1(Location=sourceSurface), storageX_1(Location=floor)
-
-# SubTask 2: Place categoryA_item2 into storageX_1.
-    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
-    Related Objects: categoryA_item2(Location=sourceSurface), storageX_1(Location=floor)
-
-# SubTask 3: Place categoryB_item1 into storageY_1.
-    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
-    Related Objects: categoryB_item1(Location=sourceSurface), storageY_1(Location=floor)
-
-# SubTask 4: Place categoryB_item2 into storageY_1.
-    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
-    Related Objects: categoryB_item2(Location=sourceSurface), storageY_1(Location=floor)
-
-# Task Move category-A items to storage-X and category-B items to storage-Y is done.

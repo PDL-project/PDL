@@ -1,0 +1,55 @@
+{
+  "task_idx": 0,
+  "agent_count": 4,
+  "assignment": {
+    "1": 3,
+    "2": 3,
+    "3": 4,
+    "6": 2
+  },
+  "subtasks": [
+    {
+      "id": 1,
+      "title": "subtask_01_Move_the_Fork_to_the_appropriate_position",
+      "robot": 3
+    },
+    {
+      "id": 2,
+      "title": "subtask_02_Move_the_Spoon_to_the_appropriate_position",
+      "robot": 3
+    },
+    {
+      "id": 3,
+      "title": "subtask_03_Move_the_Mug_to_the_appropriate_position",
+      "robot": 4
+    },
+    {
+      "id": 6,
+      "title": "subtask_06_Move_the_Toaster_to_the_appropriate_position",
+      "robot": 2
+    }
+  ],
+  "replanned": true,
+  "robot_spawn_positions": {
+    "1": [
+      -3.0,
+      0.9009997844696045,
+      2.0
+    ],
+    "2": [
+      -1.2523818016052246,
+      0.9009997844696045,
+      2.8494021892547607
+    ],
+    "3": [
+      -0.4565287232398987,
+      0.9009997844696045,
+      1.0466691255569458
+    ],
+    "4": [
+      -2.5,
+      0.9009997844696045,
+      3.25
+    ]
+  }
+}

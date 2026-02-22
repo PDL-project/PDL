@@ -1,0 +1,50 @@
+# Task Description: Move the Fork to the appropriate position.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at any object location
+#2. Robot not holding any object
+
+# SubTask 1: Move the Fork to the appropriate position.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: fork(Location=diningTable), appropriatePosition(Location=counterTop)
+
+GoToObject(robot1, fork)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 fork)
+
+PickupObject(robot1, fork, diningTable)
+   Preconditions:
+     (at-location fork diningTable)
+     (at robot1 fork)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 fork)
+
+GoToObject(robot1, appropriatePosition)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 appropriatePosition)
+
+PutObject(robot1, fork, counterTop)
+   Preconditions:
+     (holding robot1 fork)
+     (at robot1 counterTop)
+     (not (inaction robot1))
+     (not (is-fridge counterTop))
+     (not (object-close robot1 counterTop))
+   Effects:
+     (at-location fork counterTop)
+     (not (holding robot1 fork))
+     (not (inaction robot1))
+
+Goal condition: 
+(at-location fork counterTop)
+
+# Task Move the Fork to the appropriate position is done.

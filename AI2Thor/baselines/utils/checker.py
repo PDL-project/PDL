@@ -130,7 +130,8 @@ class BaseChecker:
                         subtask_attempted = (
                             f"{act}({receptacle}, {self.denumerate_object(inventory_object)})"
                         )
-                        if subtask_attempted not in self.subtasks_completed:
+                        # Only credit if this subtask actually exists in conditional_subtasks
+                        if subtask_attempted not in self.subtasks_completed and subtask_attempted in self.conditional_subtasks:
                             self.subtasks_completed.append(subtask_attempted)
                             act_receptacle = action.split(")")[0]
                             action_object = f"{act_receptacle}, {inventory_object})"
@@ -207,6 +208,11 @@ class BaseChecker:
         self.conditional_subtasks=list(filter(all_exist, self.conditional_subtasks))
 
         self.subtasks=self.independent_subtasks + self.conditional_subtasks
+
+    def get_missing_subtasks(self):
+        """Return missing subtasks, correctly matching numerated independent and denumerized conditional."""
+        completed = set(self.subtasks_completed_numerated) | set(self.subtasks_completed)
+        return sorted(set(self.subtasks) - completed)
 
     def check_coverage(self, action: str):
         # when we get here, self.coverage includes the numeration (i.e. "Drawer_2") for accurate measurement of coverage

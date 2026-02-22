@@ -90,6 +90,8 @@ class SharedTaskStateStore:
             self._store.clear()
             for _gid, sids in parallel_groups.items():
                 for sid in sids:
+                    if not isinstance(sid, int) or sid <= 0:
+                        continue
                     self._store[sid] = {
                         "state": SubtaskState.PENDING.value,
                         "error_message": None,
@@ -403,19 +405,29 @@ class PartialReplanner:
         problem_content_by_id: Dict[int, str],
         current_actions_by_id: Dict[int, List[str]],
         subtask_name_by_id: Dict[int, str],
-    ) -> bool:
+    ) -> str:
         """
         그룹 내 실패 서브태스크에 대해 재계획 수행.
-        Recursive Decomposition: decomposition_callback이 있으면 먼저 호출해
-        그룹을 다시 서브태스크로 분해한 뒤, 실패한 서브태스크부터 재계획.
+
+        1단계: decomposition_callback이 있으면 실패+미수행 서브태스크 전체를 재분해
+        2단계: 콜백이 없거나 실패하면, group_agent로 실패한 1개만 재계획 (fallback)
+
         성공한 서브태스크 데이터는 절대 수정하지 않음.
-        반환: True if at least one replan applied.
+        반환: "replanned" | "dropped" | "failed"
         """
-        if self.decomposition_callback and context.remaining_pending_ids:
+        # 1단계: decomposition_callback으로 그룹 전체 재분해
+        if self.decomposition_callback:
             new_plans = self.decomposition_callback(group_id, subtask_ids_in_group, context)
-            if new_plans:
-                # 콜백이 새 계획을 반환하면 호출자가 파일/플랜 반영 담당 가능
-                pass
+            if new_plans is not None:  # None=콜백 실패, {}=불가능한 목표 제거됨, {id:actions}=정상 replan
+                if new_plans:
+                    print(f"[ReplanGroup] decomposition_callback succeeded: {list(new_plans.keys())}")
+                    return "replanned"
+                else:
+                    print(f"[ReplanGroup] decomposition_callback: all impossible goals dropped (no new subtasks needed)")
+                    return "dropped"
+
+        # 2단계: fallback - 실패한 서브태스크 1개만 재계획
+        print(f"[ReplanGroup] Falling back to single subtask replan for subtask {context.failed_subtask_id}")
         failed_id = context.failed_subtask_id
         actions = current_actions_by_id.get(failed_id, [])
         problem_content = problem_content_by_id.get(failed_id, "")
@@ -429,7 +441,7 @@ class PartialReplanner:
             problem_content=problem_content,
             completed_actions=context.completed_actions,
         )
-        return bool(new_actions)
+        return "replanned" if new_actions else "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +493,19 @@ def load_subtask_dag_edges(base_path: str, task_name: str = "task") -> List[Tupl
     with open(dag_path, "r") as f:
         data = json.load(f)
     edges = data.get("edges", [])
-    return [(int(e["from_id"]), int(e["to_id"])) for e in edges if "from_id" in e and "to_id" in e]
+    out: List[Tuple[int, int]] = []
+    for e in edges:
+        if "from_id" not in e or "to_id" not in e:
+            continue
+        try:
+            frm = int(e["from_id"])
+            to = int(e["to_id"])
+        except (TypeError, ValueError):
+            continue
+        if frm <= 0 or to <= 0:
+            continue
+        out.append((frm, to))
+    return out
 
 
 def load_subtask_dag_parallel_groups(base_path: str, task_name: str = "task") -> Dict[int, List[int]]:
@@ -493,7 +517,26 @@ def load_subtask_dag_parallel_groups(base_path: str, task_name: str = "task") ->
     with open(dag_path, "r") as f:
         data = json.load(f)
     raw = data.get("parallel_groups", {})
-    return {int(k): list(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: Dict[int, List[int]] = {}
+    for k, v in raw.items():
+        try:
+            gid = int(k)
+        except (TypeError, ValueError):
+            continue
+        sids: List[int] = []
+        if isinstance(v, list):
+            for sid in v:
+                try:
+                    sid_i = int(sid)
+                except (TypeError, ValueError):
+                    continue
+                if sid_i > 0:
+                    sids.append(sid_i)
+        if sids:
+            cleaned[gid] = sids
+    return cleaned
 
 
 def load_subtask_dag_effects(base_path: str, task_name: str = "task") -> Dict[int, List[str]]:
@@ -513,6 +556,8 @@ def load_subtask_dag_effects(base_path: str, task_name: str = "task") -> Dict[in
         try:
             sid = int(sid)
         except (TypeError, ValueError):
+            continue
+        if sid <= 0:
             continue
         eff = n.get("effects")
         out[sid] = list(eff) if isinstance(eff, list) else []

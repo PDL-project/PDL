@@ -1,0 +1,47 @@
+# Task Description: Move the Toaster to its appropriate position.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at toaster location
+#2. Robot not holding toaster
+
+# SubTask 7: Move the Toaster to its appropriate position.
+    Skills Required: GoToObject, PickupObject, PutObject
+    Related Objects: Toaster(Location=DiningTable), CounterTop(Location=Floor)
+
+GoToObject(robot1, Toaster)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Toaster)
+
+PickupObject(robot1, Toaster, DiningTable)
+   Preconditions:
+     (at-location Toaster DiningTable)
+     (at robot1 Toaster)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Toaster)
+
+GoToObject(robot1, CounterTop)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 CounterTop)
+
+PutObject(robot1, Toaster, CounterTop)
+   Preconditions:
+     (holding robot1 Toaster)
+     (at robot1 CounterTop)
+     (not (inaction robot1))
+   Effects:
+     (at-location Toaster CounterTop)
+     (not (holding robot1 Toaster))
+
+Goal condition:
+(at-location Toaster CounterTop)
+
+# Task Move the Toaster to its appropriate position is done.

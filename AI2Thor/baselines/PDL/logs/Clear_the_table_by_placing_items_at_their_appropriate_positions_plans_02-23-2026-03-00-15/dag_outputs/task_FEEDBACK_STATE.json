@@ -1,0 +1,63 @@
+{
+  "1": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "Fork is on the countertop",
+      "Robot is not holding the fork"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 fork (1)",
+      "pickupobject robot1 fork diningtable (1)",
+      "gotoobject robot1 countertop (1)",
+      "drophandobject robot1 fork countertop (1)"
+    ]
+  },
+  "2": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "Spoon is on the countertop",
+      "Robot is not holding the spoon"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 spoon (1)",
+      "pickupobject robot1 spoon diningtable (1)",
+      "gotoobject robot1 countertop (1)",
+      "drophandobject robot1 spoon countertop (1)"
+    ]
+  },
+  "3": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "Mug is at the coffee machine",
+      "Robot is not holding the mug"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 mug (1)",
+      "pickupobject robot1 mug diningtable (1)",
+      "gotoobject robot1 coffeemachine (1)",
+      "drophandobject robot1 mug coffeemachine (1)"
+    ]
+  },
+  "6": {
+    "state": "FAILED",
+    "error_message": "InvalidOperationException: Toaster|-00.23|+01.04|+02.87 must have the property CanPickup to be picked up.. trace:   at UnityStandardAssets.Characters.FirstPerson.PhysicsRemoteFPSAgentController.pickupObject (SimObjPhysics target, System.Boolean forceAction, System.Boolean manualInteract, System.Boolean markActionFinished) [0x00028] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at UnityStandardAssets.Characters.FirstPerson.PhysicsRemoteFPSAgentController.PickupObject (System.String objectId, System.Boolean forceAction, System.Boolean manualInteract) [0x00009] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at (wrapper managed-to-native) System.Reflection.MonoMethod.InternalInvoke(System.Reflection.MonoMethod,object,object[],System.Exception&)\n  at System.Reflection.MonoMethod.Invoke (System.Object obj, System.Reflection.BindingFlags invokeAttr, System.Reflection.Binder binder, System.Object[] parameters, System.Globalization.CultureInfo culture) [0x00032] in <695d1cc93cca45069c528c15c9fdd749>:0 ",
+    "effects": null,
+    "completed_actions": [
+      "gotoobject robot1 toaster (1)",
+      "pickupobject robot1 toaster diningtable (1)"
+    ]
+  },
+  "4": {
+    "state": "PENDING",
+    "error_message": null,
+    "effects": null
+  },
+  "5": {
+    "state": "PENDING",
+    "error_message": null,
+    "effects": null
+  }
+}

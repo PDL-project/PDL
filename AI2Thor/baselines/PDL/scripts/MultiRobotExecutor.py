@@ -164,6 +164,8 @@ class MultiRobotExecutor:
         self._subtask_last_error: Dict[int, str] = {}
         self._subtask_completed_actions: Dict[int, List[str]] = {}  # 서브태스크별 성공한 액션 목록
         self._subtask_results: Dict[int, SubTaskExecutionResult] = {}
+        # 물리적으로 불가능하여 drop된 서브태스크 (더 이상 실행하지 않음)
+        self._dropped_subtasks: set = set()
         # 실시간 상태 반영용 (execute_in_ai2thor_with_feedback 호출 시에만 설정)
         self._feedback_state_store: Optional[Any] = None
 
@@ -432,7 +434,24 @@ class MultiRobotExecutor:
             data = json.load(f)
 
         raw_pg = data.get("parallel_groups", {})
-        self.parallel_groups = {int(k): list(v) for k, v in raw_pg.items()}
+        cleaned: Dict[int, List[int]] = {}
+        for k, v in raw_pg.items():
+            try:
+                gid = int(k)
+            except (TypeError, ValueError):
+                continue
+            sids: List[int] = []
+            if isinstance(v, list):
+                for sid in v:
+                    try:
+                        sid_i = int(sid)
+                    except (TypeError, ValueError):
+                        continue
+                    if sid_i > 0:
+                        sids.append(sid_i)
+            if sids:
+                cleaned[gid] = sids
+        self.parallel_groups = cleaned
         print(f"[Executor] Loaded parallel groups: {self.parallel_groups}")
         return self.parallel_groups
 
@@ -1512,7 +1531,7 @@ class MultiRobotExecutor:
         }, agent_id=agent_id, timeout=5.0)
         # checker: PickupObject (소문자 u — checker 형식에 맞춤)
         readable = self._convert_object_id_to_readable(obj_id)
-        self._checker_report(agent_id, "PickupObject", readable, success)
+        self._checker_report(agent_id, "PickUpObject", readable, success)
 
     def PutObject(self, agent_id: int, obj_pattern: str, recp_pattern: str):
         """Put held object on/in receptacle."""
@@ -1845,6 +1864,43 @@ class MultiRobotExecutor:
         print(f"[get_live_positions] Collected {len(robot_positions)} robot positions, {len(object_positions)} object positions (live)")
         return robot_positions, object_positions
 
+    def get_live_objects_ai(self) -> List[Dict[str, Any]]:
+        """
+        실행 중인 씬에서 objects_ai 형식의 실시간 오브젝트 정보를 가져옴.
+        get_ai2_thor_objects()와 동일한 형식이지만, 실행 중인 controller에서 읽음.
+
+        Returns:
+            [{"name": str, "mass": float, "locations": [str], "position": {x,y,z}}, ...]
+        """
+        if self.controller is None:
+            raise RuntimeError("[get_live_objects_ai] No active controller")
+
+        objects_ai = []
+        for obj in self.controller.last_event.metadata.get("objects", []):
+            name = obj["objectType"]
+            mass = obj.get("mass", 0.0)
+
+            parents = obj.get("parentReceptacles")
+            if parents:
+                locations = [p.split("|")[0] for p in parents]
+            else:
+                locations = ["Floor"]
+
+            position = obj.get("position", {})
+            objects_ai.append({
+                "name": name,
+                "mass": mass,
+                "locations": locations,
+                "position": {
+                    "x": position.get("x", 0.0),
+                    "y": position.get("y", 0.0),
+                    "z": position.get("z", 0.0),
+                },
+            })
+
+        print(f"[get_live_objects_ai] Collected {len(objects_ai)} objects from live scene")
+        return objects_ai
+
     @staticmethod
     def spawn_and_get_positions(
         floor_plan: int, agent_count: int
@@ -2101,6 +2157,10 @@ class MultiRobotExecutor:
             store.set_running(plan.subtask_id)
 
         agent_id = plan.robot_id - 1  # 1-기반 ID를 0-기반 인덱스로 변환
+
+        # 로봇별 Lock 획득 (같은 로봇에 여러 서브태스크 할당 시 순차 보장)
+        robot_lock = self._robot_locks[plan.robot_id]
+        robot_lock.acquire()
         print(f"\n[Subtask {plan.subtask_id}] {plan.subtask_name} -> Robot{plan.robot_id}")
 
         try:
@@ -2140,6 +2200,12 @@ class MultiRobotExecutor:
             print(f"[Subtask {plan.subtask_id}] Completed! success={success}")
 
         finally:
+            # 로봇 Lock 해제 (같은 로봇의 다음 서브태스크가 실행 가능)
+            if hasattr(self, '_robot_locks') and plan.robot_id in self._robot_locks:
+                try:
+                    self._robot_locks[plan.robot_id].release()
+                except RuntimeError:
+                    pass  # 이미 해제된 경우
             self._thread_subtask_id.pop(tid, None)
 
     def execute_in_ai2thor(self, floor_plan: int, task_description: Optional[str] = None,
@@ -2218,7 +2284,10 @@ class MultiRobotExecutor:
                     print(f"Coverage: {coverage}, Transport Rate: {transport_rate}, Finished: {finished}")
                     completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
                     expected = sorted(getattr(self.checker, "subtasks", []))
-                    missing = sorted(set(expected) - set(completed))
+                    if hasattr(self.checker, 'get_missing_subtasks'):
+                        missing = self.checker.get_missing_subtasks()
+                    else:
+                        missing = sorted(set(expected) - set(completed))
                     print(f"[Checker] Completed ({len(completed)}): {completed}")
                     print(f"[Checker] Missing ({len(missing)}): {missing}")
                 except Exception:
@@ -2246,6 +2315,9 @@ class MultiRobotExecutor:
         self._subtask_results = {}
         self._subtask_last_error = {}
         self._subtask_completed_actions = {}
+        self._dropped_subtasks = set()
+        # 로봇별 Lock: 같은 로봇에 할당된 서브태스크는 순차 실행
+        self._robot_locks: Dict[int, threading.Lock] = defaultdict(threading.Lock)
 
         if state_store is not None:
             state_store.init_from_dag(self.parallel_groups)
@@ -2271,23 +2343,100 @@ class MultiRobotExecutor:
         print("=" * 60)
 
         try:
-            for gid in sorted(groups_to_plans.keys()):
+            completed_groups = set()
+            while True:
+                # 매 반복마다 groups_to_plans를 최신 상태로 재구성
+                groups_to_plans = defaultdict(list)
+                for sid, sp in self.subtask_plans.items():
+                    groups_to_plans[sp.parallel_group].append(sp)
+
+                # 아직 완료되지 않은 그룹 중 가장 작은 gid 선택
+                remaining = sorted(gid for gid in groups_to_plans.keys() if gid not in completed_groups)
+                if not remaining:
+                    break
+                gid = remaining[0]
                 plans = groups_to_plans[gid]
+
+                # 이미 성공했거나 drop된 서브태스크 필터
+                to_run = []
                 for p in plans:
+                    if p.subtask_id in self._dropped_subtasks:
+                        print(f"[Subtask {p.subtask_id}] Dropped (physically impossible), skipping")
+                        continue
+                    prev = self._subtask_results.get(p.subtask_id)
+                    if prev and prev.success:
+                        print(f"[Subtask {p.subtask_id}] Already succeeded, skipping")
+                        continue
+                    to_run.append(p)
+
+                if not to_run:
+                    print(f"[Group {gid}] All subtasks already succeeded, skipping")
+                    completed_groups.add(gid)
+                    continue
+
+                # ── 그룹 내 서브태스크 병렬 실행 ──
+                print(f"\n[Group {gid}] Starting {len(to_run)} subtask(s) in parallel: {[p.subtask_id for p in to_run]}")
+                threads = []
+                for p in to_run:
                     t = threading.Thread(target=self._run_subtask, args=(p,), daemon=True)
                     t.start()
+                    threads.append((t, p))
+
+                # 모든 스레드 완료 대기
+                for t, _ in threads:
                     t.join()
-                    # 해당 subtask 실행 후 큐 소진까지 대기
-                    while self._queue_total_len() > 0:
-                        time.sleep(0.3)
-                    # 실패 즉시 콜백 호출
+
+                # 남은 액션 큐 소진 대기
+                while self._queue_total_len() > 0:
+                    time.sleep(0.3)
+
+                # ── 그룹 완료 후 실패 서브태스크 처리 ──
+                failed_plans = []
+                for _, p in threads:
                     result = self._subtask_results.get(p.subtask_id)
-                    if result and (not result.success) and on_subtask_failed is not None:
-                        try:
-                            on_subtask_failed(result)
-                        except Exception as cb_e:
-                            print(f"[Feedback] on_subtask_failed callback error: {cb_e}")
+                    if result and not result.success:
+                        failed_plans.append(p)
+
+                replanned = False
+                for p in failed_plans:
+                    if on_subtask_failed is None:
+                        continue
+                    try:
+                        replan_success = on_subtask_failed(self._subtask_results[p.subtask_id])
+                    except Exception as cb_e:
+                        print(f"[Feedback] on_subtask_failed callback error: {cb_e}")
+                        replan_success = False
+
+                    if replan_success:
+                        replanned = True
+                        failed_sid = p.subtask_id
+                        new_plan = self.subtask_plans.get(failed_sid)
+                        if new_plan:
+                            print(f"[Feedback] Re-executing subtask {failed_sid} with new plan ({len(new_plan.actions)} actions)")
+                            self._subtask_failed[failed_sid] = False
+                            t2 = threading.Thread(target=self._run_subtask, args=(new_plan,), daemon=True)
+                            t2.start()
+                            t2.join()
+                            while self._queue_total_len() > 0:
+                                time.sleep(0.3)
+
                 print(f"[Group {gid}] Completed")
+
+                if replanned:
+                    # 리플랜으로 그룹 구성이 바뀌었을 수 있으므로
+                    # completed_groups를 초기화하지 않고, 다음 루프에서 재평가
+                    # (이미 성공한 서브태스크는 skip됨)
+                    completed_groups.clear()
+                    # 이미 모든 서브태스크가 성공한 그룹은 다시 완료 처리
+                    for prev_gid, prev_plans in groups_to_plans.items():
+                        if all(
+                            self._subtask_results.get(p.subtask_id)
+                            and self._subtask_results[p.subtask_id].success
+                            for p in prev_plans
+                        ):
+                            completed_groups.add(prev_gid)
+                else:
+                    completed_groups.add(gid)
             while self._queue_total_len() > 0:
                 time.sleep(0.3)
             if self.checker is not None:
@@ -2298,9 +2447,14 @@ class MultiRobotExecutor:
                     print(f"Coverage: {coverage}, Transport Rate: {transport_rate}, Finished: {finished}")
                     completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
                     expected = sorted(getattr(self.checker, "subtasks", []))
-                    missing = sorted(set(expected) - set(completed))
+                    if hasattr(self.checker, 'get_missing_subtasks'):
+                        missing = self.checker.get_missing_subtasks()
+                    else:
+                        missing = sorted(set(expected) - set(completed))
                     print(f"[Checker] Completed ({len(completed)}): {completed}")
                     print(f"[Checker] Missing ({len(missing)}): {missing}")
+                    if self._dropped_subtasks:
+                        print(f"[Checker] Dropped (physically impossible): subtask IDs {sorted(self._dropped_subtasks)}")
                 except Exception:
                     pass
             return dict(self._subtask_results)

@@ -1,0 +1,93 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Move_the_Fork_to_the_appropriate_position",
+      "objects": [
+        "robot1",
+        "fork",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Fork is on the dining table",
+        "Robot is not holding the fork"
+      ],
+      "effects": [
+        "Fork is on the countertop",
+        "Robot is not holding the fork"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Move_the_Spoon_to_the_appropriate_position",
+      "objects": [
+        "robot1",
+        "spoon",
+        "diningtable",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Spoon is on the dining table",
+        "Robot is not holding the spoon"
+      ],
+      "effects": [
+        "Spoon is on the countertop",
+        "Robot is not holding the spoon"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Move_the_Mug_to_the_appropriate_position",
+      "objects": [
+        "robot1",
+        "mug",
+        "coffeeMachine",
+        "diningTable"
+      ],
+      "preconds": [
+        "Robot is not inactive",
+        "Robot is in the kitchen",
+        "Mug is on the dining table",
+        "Robot is not holding the mug"
+      ],
+      "effects": [
+        "Mug is at the coffee machine",
+        "Robot is not holding the mug"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Move_the_Toaster_to_the_appropriate_position",
+      "objects": [
+        "robot1",
+        "toaster",
+        "diningTable",
+        "counterTop"
+      ],
+      "preconds": [
+        "Robot is not inactive",
+        "Robot is in the kitchen",
+        "Toaster is on the dining table",
+        "Robot is not holding the toaster"
+      ],
+      "effects": [
+        "Toaster is on the counterTop",
+        "Robot is not holding the toaster"
+      ]
+    }
+  ],
+  "edges": [],
+  "parallel_groups": {
+    "0": [
+      1,
+      2,
+      3,
+      6
+    ]
+  }
+}

@@ -29,7 +29,7 @@ Subtasks:
     • CloseObject(Fridge)
 
 Coverage:
-    • Butterknife
+    • ButterKnife
     • Spoon
     • Fork
     • Tomato
@@ -53,9 +53,9 @@ class Checker(BaseChecker):
          'PutObject(Fridge, Lettuce)',
          'NavigateTo(ButterKnife)',
          'PickUpObject(ButterKnife)',
-         'NavigateTo(Drawer, Butterknife)',
-         'OpenObject(Drawer, Butterknife)',
-         'PutObject(Drawer, Butterknife)',
+         'NavigateTo(Drawer, ButterKnife)',
+         'OpenObject(Drawer, ButterKnife)',
+         'PutObject(Drawer, ButterKnife)',
          'NavigateTo(Fork)',
          'PickUpObject(Fork)',
          'NavigateTo(Drawer, Fork)',
@@ -77,9 +77,9 @@ class Checker(BaseChecker):
          'PutObject(Fridge, Tomato)',
          'NavigateTo(Fridge, Lettuce)',
          'PutObject(Fridge, Lettuce)',
-         'NavigateTo(Drawer, Butterknife)',
-         'OpenObject(Drawer, Butterknife)',
-         'PutObject(Drawer, Butterknife)',
+         'NavigateTo(Drawer, ButterKnife)',
+         'OpenObject(Drawer, ButterKnife)',
+         'PutObject(Drawer, ButterKnife)',
          'NavigateTo(Drawer, Fork)',
          'OpenObject(Drawer, Fork)',
          'PutObject(Drawer, Fork)',
@@ -104,10 +104,10 @@ class Checker(BaseChecker):
         ]
 
 
-        # Butterknife, spoon, fork, tomato, lettuce, fridge
+        # ButterKnife, spoon, fork, tomato, lettuce, fridge
         coverage = ["ButterKnife", "Spoon", "Fork", "Tomato", "Lettuce", "Fridge"]
         interact_objects = coverage
-        interact_receptacles = ["Fridge"]
+        interact_receptacles = ["Fridge", "Drawer"]
 
         super().__init__(
             subtasks,

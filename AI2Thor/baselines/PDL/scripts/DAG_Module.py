@@ -759,8 +759,15 @@ class DAGProcessor:
             self.generator.visualize_dag(dag, img_output)
 
             # 2) Subtask Summary (LLM) 생성
+            m_sid = re.search(r"subtask_(\d+)", plan_file)
+            if m_sid:
+                subtask_id = int(m_sid.group(1))
+            else:
+                # Fallback: keep 1-based IDs to avoid invalid subtask 0.
+                subtask_id = len(summaries) + 1
+
             s = self.generator.build_subtask_summary(
-                subtask_id=len(summaries),
+                subtask_id=subtask_id,
                 subtask_name=subtask_name,
                 plan_actions=plan_actions,
                 problem_content=problem_content,
