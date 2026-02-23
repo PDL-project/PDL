@@ -365,6 +365,18 @@ class MultiRobotExecutor:
         with self.action_lock:
             return sum(len(q) for q in self.action_queues)
 
+    def _drain_action_queue(self, timeout: float = 15.0) -> None:
+        """액션 큐가 빌 때까지 대기. timeout 초 초과 시 큐를 강제 비우고 반환.
+        yield 모니터가 큐를 계속 채울 경우 무한 대기를 방지한다."""
+        deadline = time.time() + timeout
+        while self._queue_total_len() > 0:
+            if time.time() > deadline:
+                with self.action_lock:
+                    for q in self.action_queues:
+                        q.clear()
+                break
+            time.sleep(0.3)
+
     def _dequeue_action(self) -> Optional[dict]:
         # Round-Robin 방식으로 각 로봇의 Action Queue에서 다음 실행할 Action을 하나 꺼내는 함수
         with self.action_lock:
@@ -1091,6 +1103,13 @@ class MultiRobotExecutor:
 
             for blocking_id, req in req_items:
                 try:
+                    # 최대 재시도 횟수 초과: yield 요청 강제 종료
+                    if req.attempts >= 15:
+                        with self.bb_lock:
+                            if self.yield_requests.get(blocking_id) == req:
+                                del self.yield_requests[blocking_id]
+                        continue
+
                     # 이미 blocker가 뭔가 하느라 바쁘면(=pending) 이번 턴은 스킵
                     if self._agent_has_pending_actions(blocking_id):
                         continue
@@ -2267,10 +2286,7 @@ class MultiRobotExecutor:
 
             # 모든 액션 큐가 비워질 때까지 대기
             print("\n[EXEC] Waiting for action queue to empty...")
-            while True:
-                if self._queue_total_len() == 0:
-                    break
-                time.sleep(0.5)
+            self._drain_action_queue()
 
             # 종료 전 확인을 위해 잠시 대기
             print("[EXEC] All done! Press 'q' in any window to close.")
@@ -2387,8 +2403,7 @@ class MultiRobotExecutor:
                     t.join()
 
                 # 남은 액션 큐 소진 대기
-                while self._queue_total_len() > 0:
-                    time.sleep(0.3)
+                self._drain_action_queue()
 
                 # ── 그룹 완료 후 실패 서브태스크 처리 ──
                 failed_plans = []
@@ -2417,18 +2432,17 @@ class MultiRobotExecutor:
                             t2 = threading.Thread(target=self._run_subtask, args=(new_plan,), daemon=True)
                             t2.start()
                             t2.join()
-                            while self._queue_total_len() > 0:
-                                time.sleep(0.3)
+                            self._drain_action_queue()
 
                 print(f"[Group {gid}] Completed")
 
                 if replanned:
-                    # 리플랜으로 그룹 구성이 바뀌었을 수 있으므로
-                    # completed_groups를 초기화하지 않고, 다음 루프에서 재평가
-                    # (이미 성공한 서브태스크는 skip됨)
+                    # 재계획 후 교체된 subtask_plans 기반으로 그룹 재구성
                     completed_groups.clear()
-                    # 이미 모든 서브태스크가 성공한 그룹은 다시 완료 처리
-                    for prev_gid, prev_plans in groups_to_plans.items():
+                    replanned_groups: Dict[int, list] = defaultdict(list)
+                    for _s, _sp in self.subtask_plans.items():
+                        replanned_groups[_sp.parallel_group].append(_sp)
+                    for prev_gid, prev_plans in replanned_groups.items():
                         if all(
                             self._subtask_results.get(p.subtask_id)
                             and self._subtask_results[p.subtask_id].success
@@ -2437,8 +2451,8 @@ class MultiRobotExecutor:
                             completed_groups.add(prev_gid)
                 else:
                     completed_groups.add(gid)
-            while self._queue_total_len() > 0:
-                time.sleep(0.3)
+            self._drain_action_queue()
+            
             if self.checker is not None:
                 try:
                     coverage = self.checker.get_coverage()

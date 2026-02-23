@@ -847,7 +847,7 @@ class TaskManager:
                         effects_for_success = {
                             sid: dag_effects.get(sid, [])
                             for sid, r in current_results.items()
-                            if r.success and dag_effects
+                            if r.success
                         }
                         sync_execution_results_to_store(
                             state_store, current_results, effects_by_subtask_id=effects_for_success
@@ -895,7 +895,7 @@ class TaskManager:
                     effects_for_success = {
                         sid: dag_effects.get(sid, [])
                         for sid, r in results.items()
-                        if r.success and dag_effects
+                        if r.success
                     }
                     sync_execution_results_to_store(
                         state_store, results, effects_by_subtask_id=effects_for_success
@@ -1535,6 +1535,89 @@ class TaskManager:
             print(f"Error in run_llmvalidator: {str(e)}")
             raise
 
+    def _run_replan_validator(
+        self,
+        subtask_pddl_problems: List[Dict[str, Any]],
+        precondition_subtasks: List[Dict[str, Any]],
+        domain_content: str,
+    ) -> None:
+        """
+        피드백 루프 재계획 시 생성된 PDDL Problem을 LLM으로 검증 후 validated_subtask_path에 저장.
+        """
+        precond_by_id = {item["subtask_id"]: item for item in precondition_subtasks}
+        val_dir = self.file_processor.validated_subtask_path
+
+        for item in subtask_pddl_problems:
+            sid = item["subtask_id"]
+            title = item["subtask_title"]
+            problem_text = item["problem_text"]
+
+            safe_title = re.sub(r'[^a-zA-Z0-9_\-]+', '_', title).strip('_')
+            filename = f"subtask_{sid:02d}_{safe_title}_REPLAN.pddl"
+
+            # 기존 validated 파일 제거
+            for f in os.listdir(val_dir):
+                if f.startswith(f"subtask_{sid:02d}_") and f.endswith(".pddl"):
+                    try:
+                        os.remove(os.path.join(val_dir, f))
+                    except Exception:
+                        pass
+
+            pre_item = precond_by_id.get(sid, {})
+            precondition_content = pre_item.get("pre_goal_text", "")
+
+            prompt = (
+                "You are a strict PDDL problem validator and repair system for Fast Downward.\n"
+                "The DOMAIN is the single source of truth.\n"
+                "Your job is to REWRITE the PROBLEM so that it is consistent with the DOMAIN "
+                "and solvable when the task intent is achievable.\n\n"
+
+                "CRITICAL RULES for receptacles:\n"
+                "OPENABLE objects (Drawer, Cabinet, Safe, Microwave, Dishwasher, Toilet, ShowerDoor, Box):\n"
+                "- Include (object-close robot1 <receptacle>) in :init (they start CLOSED)\n"
+                "- PutObject requires (not (object-close ?r ?loc)), so planner MUST OpenObject first\n"
+                "- If placing into them, :goal should include (object-close robot1 <receptacle>)\n"
+                "- If the subtask is ONLY about opening, the goal should include (object-open) but NOT (object-close)"
+                "NON-OPENABLE objects (CounterTop, StoveBurner, CoffeeMachine, DiningTable, Shelf, SinkBasin, Plate, Bed, Sofa, Desk, GarbageCan, Bathtub):\n"
+                "- Do NOT include (object-close) for these. PutObject works directly.\n"
+                "FRIDGE: use (is-fridge fridge) and (not (fridge-open fridge)) in :init.\n\n"
+
+                f"precondition Description (to be check preconditions):\n{precondition_content}\n\n"
+                f"Domain Description (authoritative):\n{domain_content}\n\n"
+                f"Problem Description (to be repaired):\n{problem_text}\n\n"
+
+                "Output format must be:\n"
+                "(define (problem <name>)\n"
+                "  (:domain <domain>)\n"
+                "  (:objects ...)\n"
+                "  (:init ...)\n"
+                "  (:goal (and ...))\n"
+                ")\n"
+            )
+
+            try:
+                if "gpt" not in self.gpt_version:
+                    _, text = self.llm.query_model(prompt, self.gpt_version, max_tokens=1400, stop=["def"], frequency_penalty=0.0)
+                else:
+                    messages = [
+                        {"role": "system", "content": "You are a PDDL validator. Output ONLY corrected PDDL."},
+                        {"role": "user", "content": prompt}
+                    ]
+                    _, text = self.llm.query_model(messages, self.gpt_version, max_tokens=1400, frequency_penalty=0.0)
+
+                validated = self.file_processor.normalize_pddl(text)
+                out_path = os.path.join(val_dir, filename)
+                self.file_processor.write_file(out_path, validated)
+                print(f"[REPLAN VALIDATED WROTE] {out_path}")
+
+            except Exception as e:
+                print(f"  Warning: Validation failed for subtask {sid}: {e}")
+                # Fallback: 검증 실패 시 원본 정규화 후 저장
+                out_path = os.path.join(val_dir, filename)
+                normalized = self.file_processor.normalize_pddl(problem_text)
+                self.file_processor.write_file(out_path, normalized)
+                print(f"  Fallback: saved normalized (unvalidated) problem to {out_path}")
+
     def extract_plan_actions(self, fd_stdout: str) -> list[str]:
         """
         'switchon robot1 faucet (1)'만 추출하는 함수
@@ -2088,7 +2171,7 @@ class TaskManager:
                 traceback.print_exc()
                 return None
             
-            # 10. 파일 저장
+            # 10-1. 파일 저장
             print("  Saving generated files...")
             try:
                 for item in precondition_subtasks:
@@ -2113,7 +2196,16 @@ class TaskManager:
             except Exception as e:
                 print(f"  ERROR: Failed to save files: {e}")
                 return None
-            
+
+            # 10-2. Validation
+            print("  Validating regenerated PDDL problems (replan)...")
+            try:
+                self._run_replan_validator(subtask_pddl_problems, precondition_subtasks, domain_content)
+            except Exception as e:
+                print(f"  Warning: PDDL validation step failed: {e}")
+                import traceback
+                traceback.print_exc()
+
             # 11. 플래너 실행하여 액션 생성
             print("  Running planner for new subtasks...")
             new_plans: Dict[int, List[str]] = {}

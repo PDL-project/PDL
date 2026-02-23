@@ -643,7 +643,7 @@ def run_planner_for_one_subtask(
 
     prefix = f"subtask_{subtask_id:02d}_"
     problem_file = None
-    for f in os.listdir(validated_subtask_path):
+    for f in sorted(os.listdir(validated_subtask_path), reverse=True):
         if f.startswith(prefix) and f.endswith(".pddl"):
             problem_file = f
             break
