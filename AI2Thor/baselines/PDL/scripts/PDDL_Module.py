@@ -1886,16 +1886,22 @@ class TaskManager:
                 if success == "replanned":
                     print(f"[Feedback] Group {failed_id} successfully replanned via decomposition")
 
-                    replanned_ids = [
-                        sid for sid in ([context.failed_subtask_id] + context.remaining_pending_ids)
-                        if isinstance(sid, int) and sid > 0
-                    ]
+                    replaced_ids = list(
+                        getattr(partial_replanner, "last_replaced_ids", subtask_ids_in_group)
+                    )
+                    replanned_ids = list(
+                        getattr(partial_replanner, "last_replanned_ids", [])
+                    )
+                    if not replanned_ids:
+                        # conservative fallback (single-subtask replan path)
+                        replanned_ids = [context.failed_subtask_id]
 
                     # DAG 통합
                     dag_integrated = self.integrate_replanned_subtasks_to_dag(
                         task_name=task_name,
                         task_idx=task_idx,
                         original_group_id=failed_id,
+                        replaced_subtask_ids=replaced_ids,
                         replanned_subtask_ids=replanned_ids,
                         new_plans=current_actions_by_id,
                         state_store=state_store
@@ -2302,6 +2308,7 @@ class TaskManager:
         task_name: str,
         task_idx: int,
         original_group_id: int,
+        replaced_subtask_ids: List[int],
         replanned_subtask_ids: List[int],
         new_plans: Dict[int, List[str]],
         state_store,
@@ -2332,6 +2339,9 @@ class TaskManager:
             print(f"\n{'='*60}")
             print(f"[DAG Integration] Integrating replanned subtasks into DAG")
             print(f"{'='*60}")
+            replaced_subtask_ids = sorted(
+                sid for sid in replaced_subtask_ids if isinstance(sid, int) and sid > 0
+            )
             replanned_subtask_ids = sorted(
                 sid for sid in replanned_subtask_ids if isinstance(sid, int) and sid > 0
             )
@@ -2365,11 +2375,12 @@ class TaskManager:
             # 원래 DAG에 있지만 아직 실행되지 않은 서브테스크 (pending)
             all_original_ids = [n["id"] for n in original_dag["nodes"]]
             executed_ids = set(success_ids + failed_ids)
-            pending_ids = [sid for sid in all_original_ids if sid not in executed_ids and sid not in replanned_subtask_ids]
+            pending_ids = [sid for sid in all_original_ids if sid not in executed_ids and sid not in replaced_subtask_ids]
 
             print(f"  Success subtasks: {success_ids}")
             print(f"  Failed subtasks: {failed_ids}")
             print(f"  Pending subtasks (not yet executed): {pending_ids}")
+            print(f"  Replaced subtasks: {replaced_subtask_ids}")
             print(f"  Replanned subtasks: {replanned_subtask_ids}")
 
             # 유지할 서브테스크: 성공 + 미실행(pending)
@@ -2403,13 +2414,19 @@ class TaskManager:
             new_summaries = []
             
             for sid in sorted(replanned_subtask_ids):
-                # REPLAN 파일들 찾기
+                # REPLAN 파일 우선 선택, 없으면 일반 actions 사용
                 base_name = None
-                for fname in os.listdir(plans_dir):
-                    # subtask_XX_*_REPLAN_actions.txt 또는 subtask_XX_*_actions.txt
-                    if re.match(rf"subtask_{sid:02d}_.*_actions\.txt$", fname):
-                        base_name = fname.replace("_actions.txt", "")
-                        break
+                plan_files = os.listdir(plans_dir)
+                replan_candidates = sorted(
+                    [f for f in plan_files if re.match(rf"subtask_{sid:02d}_.*_REPLAN_actions\.txt$", f)]
+                )
+                normal_candidates = sorted(
+                    [f for f in plan_files if re.match(rf"subtask_{sid:02d}_.*_actions\.txt$", f)]
+                )
+                if replan_candidates:
+                    base_name = replan_candidates[-1].replace("_actions.txt", "")
+                elif normal_candidates:
+                    base_name = normal_candidates[-1].replace("_actions.txt", "")
                 
                 if not base_name:
                     print(f"    Warning: No plan file found for subtask {sid}")

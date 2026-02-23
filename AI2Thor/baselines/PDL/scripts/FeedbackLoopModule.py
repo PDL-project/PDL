@@ -369,6 +369,9 @@ class PartialReplanner:
         self.store = store
         self.group_agent = group_agent
         self.decomposition_callback = decomposition_callback
+        # last replan metadata (used by caller to integrate DAG correctly)
+        self.last_replaced_ids: List[int] = []
+        self.last_replanned_ids: List[int] = []
 
     def build_context_for_replan(
         self,
@@ -415,11 +418,18 @@ class PartialReplanner:
         성공한 서브태스크 데이터는 절대 수정하지 않음.
         반환: "replanned" | "dropped" | "failed"
         """
+        # reset last metadata
+        self.last_replaced_ids = [sid for sid in subtask_ids_in_group if isinstance(sid, int) and sid > 0]
+        self.last_replanned_ids = []
+
         # 1단계: decomposition_callback으로 그룹 전체 재분해
         if self.decomposition_callback:
             new_plans = self.decomposition_callback(group_id, subtask_ids_in_group, context)
             if new_plans is not None:  # None=콜백 실패, {}=불가능한 목표 제거됨, {id:actions}=정상 replan
                 if new_plans:
+                    self.last_replanned_ids = sorted(
+                        sid for sid in new_plans.keys() if isinstance(sid, int) and sid > 0
+                    )
                     print(f"[ReplanGroup] decomposition_callback succeeded: {list(new_plans.keys())}")
                     return "replanned"
                 else:
@@ -441,6 +451,9 @@ class PartialReplanner:
             problem_content=problem_content,
             completed_actions=context.completed_actions,
         )
+        if new_actions:
+            self.last_replanned_ids = [failed_id]
+            self.last_replaced_ids = [failed_id]
         return "replanned" if new_actions else "failed"
 
 

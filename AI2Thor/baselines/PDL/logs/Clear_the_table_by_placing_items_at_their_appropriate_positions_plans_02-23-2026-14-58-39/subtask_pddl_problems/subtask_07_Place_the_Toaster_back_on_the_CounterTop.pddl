@@ -1,0 +1,26 @@
+```pddl
+(define (problem place-toaster-on-countertop)
+  (:domain allactionrobot)
+
+  (:objects
+    robot1 - robot
+    toaster - object
+    diningtable - object
+    countertop - object
+    floor - object
+  )
+
+  (:init
+    (not (inaction robot1))
+    (at robot1 floor)
+    (at-location toaster diningtable)
+    (at-location countertop floor)
+    (not (holding robot1 toaster))
+  )
+
+  (:goal (and
+    (at-location toaster countertop)
+    (not (holding robot1 toaster))
+  ))
+)
+```

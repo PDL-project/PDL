@@ -1,0 +1,64 @@
+# Task Description: Place the Fork back in the Drawer.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at fork location
+#2. Robot not holding fork
+#3. Drawer is initially closed
+
+# SubTask 3: Place the Fork back in the Drawer.
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: Fork(Location=DiningTable), Drawer(Location=Floor)
+
+GoToObject(robot1, Fork)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Fork)
+
+PickupObject(robot1, Fork, DiningTable)
+   Preconditions:
+     (at-location Fork DiningTable)
+     (at robot1 Fork)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 Fork)
+
+GoToObject(robot1, Drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Drawer)
+
+OpenObject(robot1, Drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Drawer)
+   Effects:
+     (object-open robot1 Drawer)
+
+PutObject(robot1, Fork, Drawer)
+   Preconditions:
+     (holding robot1 Fork)
+     (at robot1 Drawer)
+     (not (inaction robot1))
+     (not (object-close robot1 Drawer))
+   Effects:
+     (at-location Fork Drawer)
+     (not (holding robot1 Fork))
+
+CloseObject(robot1, Drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Drawer)
+     (object-open robot1 Drawer)
+   Effects:
+     (object-close robot1 Drawer)
+
+Goal condition: 
+(at-location Fork Drawer)
+
+# Task Place the Fork back in the Drawer is done.
