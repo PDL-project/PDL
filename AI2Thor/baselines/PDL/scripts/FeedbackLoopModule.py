@@ -552,28 +552,40 @@ def load_subtask_dag_parallel_groups(base_path: str, task_name: str = "task") ->
     return cleaned
 
 
-def load_subtask_dag_effects(base_path: str, task_name: str = "task") -> Dict[int, List[str]]:
-    """서브태스크 DAG JSON에서 노드별 effects 로드. subtask_id -> [effect strings]. 로컬 피드백 시 성공 effects 반영용."""
-    resources = os.path.join(base_path, "resources")
-    dag_path = os.path.join(resources, "dag_outputs", f"{task_name}_SUBTASK_DAG.json")
-    if not os.path.exists(dag_path):
+def load_subtask_precond_effects(base_path: str, task_name: str = "task") -> Dict[int, List[str]]:
+    """pre_XX_*.txt 파일에서 모든 액션의 Effects를 파싱하여 subtask_id -> [effect strings] 반환."""
+    precond_dir = os.path.join(base_path, "resources", "precondition_subtasks")
+    if not os.path.exists(precond_dir):
         return {}
-    with open(dag_path, "r") as f:
-        data = json.load(f)
-    nodes = data.get("nodes", [])
     out: Dict[int, List[str]] = {}
-    for n in nodes:
-        sid = n.get("id")
-        if sid is None:
+    for fname in sorted(os.listdir(precond_dir)):
+        m = re.match(r"pre_(\d+)_.*\.txt$", fname)
+        if not m:
             continue
         try:
-            sid = int(sid)
-        except (TypeError, ValueError):
+            sid = int(m.group(1))
+        except ValueError:
             continue
         if sid <= 0:
             continue
-        eff = n.get("effects")
-        out[sid] = list(eff) if isinstance(eff, list) else []
+        fpath = os.path.join(precond_dir, fname)
+        effects: List[str] = []
+        in_effects = False
+        try:
+            with open(fpath, "r") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped == "Effects:":
+                        in_effects = True
+                        continue
+                    if in_effects:
+                        if stripped.startswith("("):
+                            effects.append(stripped)
+                        elif stripped == "" or (len(line) > 0 and not line[0].isspace()):
+                            in_effects = False
+        except Exception:
+            pass
+        out[sid] = effects
     return out
 
 

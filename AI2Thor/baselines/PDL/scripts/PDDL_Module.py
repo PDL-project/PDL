@@ -45,7 +45,7 @@ from auto_config import AutoConfig # config 로딩/세팅 자동화
 
 from FeedbackLoopModule import (
     load_subtask_dag_edges,
-    load_subtask_dag_effects,
+    load_subtask_precond_effects,
     load_subtask_dag_parallel_groups,
     PartialReplanner,
     GroupAgent,
@@ -843,11 +843,16 @@ class TaskManager:
                         replan_retry_per_subtask[sid] = count + 1
 
                         current_results = dict(executor._subtask_results)
-                        dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
+                        current_group_sids: set = set()
+                        for _gid, _sids in executor.parallel_groups.items():
+                            if sid in _sids:
+                                current_group_sids = set(_sids)
+                                break
+                        precond_effects = load_subtask_precond_effects(self.base_path)
                         effects_for_success = {
-                            sid: dag_effects.get(sid, [])
-                            for sid, r in current_results.items()
-                            if r.success
+                            s: precond_effects.get(s, [])
+                            for s, r in current_results.items()
+                            if r.success and s in current_group_sids
                         }
                         sync_execution_results_to_store(
                             state_store, current_results, effects_by_subtask_id=effects_for_success
@@ -888,10 +893,9 @@ class TaskManager:
                         state_store=state_store,
                         on_subtask_failed=_on_subtask_failed,
                     )
-                    # 실행 완료 후 최종 상태 스토어 반영
-                    dag_effects = load_subtask_dag_effects(self.base_path, task_name_fb)
+                    precond_effects = load_subtask_precond_effects(self.base_path)
                     effects_for_success = {
-                        sid: dag_effects.get(sid, [])
+                        sid: precond_effects.get(sid, [])
                         for sid, r in results.items()
                         if r.success
                     }
@@ -2080,12 +2084,96 @@ class TaskManager:
                 print("  ERROR: No subtask goals found, cannot redecompose")
                 return None
             
-            # 3. 성공한 서브태스크의 Effects 포맷
+            # 3-1. 성공한 서브태스크의 Effects 포맷
             success_effects_text = format_success_effects_for_prompt(
                 context.success_effects,
                 exclude_subtask_id=None
             )
-            
+
+            # 3-2. 로컬 환경 정보: 현재 씬의 로봇 위치 + 오브젝트 상태
+            local_env_lines = []
+
+            # live 데이터 수집
+            live_robot_positions = {}  # robot_id(int) -> (x, y, z)
+            live_objects = []          # [{"name": str, "locations": [...], "position": {...}}]
+            if executor is not None:
+                try:
+                    live_robot_positions, _ = executor.get_live_positions()
+                except Exception as e:
+                    print(f"  Warning: Could not get live robot positions: {e}")
+                try:
+                    live_objects = executor.get_live_objects_ai()
+                except Exception as e:
+                    print(f"  Warning: Could not get live objects: {e}")
+
+            # PDDL :objects 섹션에서 서브태스크별 로봇/오브젝트 파싱 (1회씩)
+            subtask_robots = {}   # sid -> [robot_name, ...]
+            subtask_objects = {}  # sid -> [obj_name, ...]
+            for sid in tasks_to_replan:
+                pddl_fname = None
+                if os.path.exists(problems_dir):
+                    for fname in sorted(os.listdir(problems_dir), reverse=True):
+                        if fname.startswith(f"subtask_{sid:02d}_") and fname.endswith(".pddl"):
+                            pddl_fname = fname
+                            break
+                robots, objects = [], []
+                if pddl_fname:
+                    try:
+                        with open(os.path.join(problems_dir, pddl_fname), "r") as f:
+                            pddl_lines = f.readlines()
+                        section, depth = None, 0
+                        for line in pddl_lines:
+                            s = line.strip()
+                            if section is None:
+                                if s.startswith("(:objects"):
+                                    section, depth = "objects", s.count("(") - s.count(")")
+                            else:
+                                depth += s.count("(") - s.count(")")
+                                if depth <= 0:
+                                    break
+                                if " - robot" in s:
+                                    robots.append(s.split(" - ")[0].strip())
+                                elif " - " in s:
+                                    obj_name = s.split(" - ")[0].strip()
+                                    if obj_name:
+                                        objects.append(obj_name)
+                    except Exception:
+                        pass
+                subtask_robots[sid] = robots
+                subtask_objects[sid] = objects
+
+            # 그룹 내 등장하는 모든 로봇의 현재 위치 출력
+            all_robots = sorted(set(r for rs in subtask_robots.values() for r in rs))
+            local_env_lines.append("### Current Robot Positions")
+            for robot_name in all_robots:
+                try:
+                    rid = int(re.sub(r"\D", "", robot_name))
+                    pos = live_robot_positions.get(rid)
+                    pos_str = f"(x={pos[0]:.2f}, y={pos[1]:.2f}, z={pos[2]:.2f})" if pos else "(unknown)"
+                except Exception:
+                    pos_str = "(unknown)"
+                local_env_lines.append(f"- {robot_name}: {pos_str}")
+
+            # live 오브젝트 상태를 이름(소문자)으로 매핑
+            live_obj_map = {obj["name"].lower(): obj for obj in live_objects}
+
+            # 서브태스크별 오브젝트 현재 상태 출력
+            local_env_lines.append("\n### Current Object States per Subtask")
+            for sid in tasks_to_replan:
+                robots_str = ", ".join(subtask_robots.get(sid, [])) or "(none)"
+                local_env_lines.append(f"\n[Subtask {sid}] Robots: {robots_str}")
+                for obj_name in subtask_objects.get(sid, []):
+                    live_obj = live_obj_map.get(obj_name.lower())
+                    if live_obj:
+                        locs = ", ".join(live_obj["locations"])
+                        p = live_obj["position"]
+                        local_env_lines.append(
+                            f"  - {obj_name}: location=[{locs}], pos=(x={p['x']:.2f}, y={p['y']:.2f}, z={p['z']:.2f})"
+                        )
+                    else:
+                        local_env_lines.append(f"  - {obj_name}: (not found in scene)")
+            local_env_text = "\n".join(local_env_lines)
+
             # 4. 통합 목표 텍스트 생성
             combined_goals = "\n\n".join([
                 f"## Original Subtask {sid}:\n{goal}"
@@ -2123,7 +2211,7 @@ class TaskManager:
             redecompose_prompt += "## Already Achieved Effects (from successful subtasks - DO NOT REPEAT)\n"
             redecompose_prompt += f"{success_effects_text if success_effects_text else '(None - this is the first attempt)'}\n\n"
             redecompose_prompt += "## Local Environment\n"
-            redecompose_prompt += f"{context.local_env if hasattr(context, 'local_env') and context.local_env else '(Standard kitchen environment)'}\n\n"
+            redecompose_prompt += f"{local_env_text if local_env_text else '(Standard kitchen environment)'}\n\n"
 
             redecompose_prompt += f"## Goals to Consider (REMOVE any that are physically impossible based on failure info above)\n"
             redecompose_prompt += f"{combined_goals}\n\n"
