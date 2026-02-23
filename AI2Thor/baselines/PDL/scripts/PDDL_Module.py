@@ -709,18 +709,18 @@ class TaskManager:
                 decomposed_plan = self._generate_decomposed_plan(task, domain_content, self.available_robot_skills, objects_ai)
                 self.decomposed_plan.append(decomposed_plan)
                 
-                #print("✓ Decomposed plan generated")
+                print("✓ Decomposed plan generated")
                 #print("decomposed plan:\n", decomposed_plan)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
                 
                 parsed_subtasks = self._decomposed_plan_to_subtasks(decomposed_plan) #분리
-                #print("✓ Parsed Decomposed Plan generated")
+                print("✓ Parsed Decomposed Plan generated")
                 #print("parsed decomposed plan:\n", parsed_subtasks)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
                 precondition_subtasks = self._generate_precondition_subtasks(parsed_subtasks, domain_content, self.available_robot_skills, objects_ai)
                 self.precondition_subtasks.append(precondition_subtasks) 
-                #print("✓ Precondition Decomposed Plan generated")
+                print("✓ Precondition Decomposed Plan generated")
                 #print("Precondition Decomposed Plan:\n", precondition_subtasks)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
@@ -739,7 +739,7 @@ class TaskManager:
                 subtask_pddl_problems = self._generate_subtask_pddl_problems(precondition_subtasks, domain_content, self.available_robot_skills, objects_ai)
                 self.subtask_pddl_problems.append(subtask_pddl_problems)
 
-                #print("✓ PDDL problems generated")
+                print("✓ PDDL problems generated")
                 #print("PDDL problems plan:\n", subtask_pddl_problems)
                 #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
@@ -867,12 +867,10 @@ class TaskManager:
 
                         if replan_result == "no_change":
                             print("[Feedback] Replan: no_change")
+                            # run_feedback_replan 내부에서 dropped 처리가 되었을 수 있음
+                            if sid in executor._dropped_subtasks:
+                                print(f"[Feedback] Subtask {sid} was dropped during replan (physically impossible)")
                             return False
-                        if replan_result == "dropped":
-                            # 물리적으로 불가능한 서브태스크가 drop됨
-                            print(f"[Feedback] Subtask {sid} dropped (physically impossible)")
-                            executor._dropped_subtasks.add(sid)
-                            return False  # 재실행하지 않음
                         if replan_result == "fully_replanned":
                             print("[Feedback] Replan: fully_replanned")
                             success = self.reload_executor_with_integrated_dag(
@@ -1737,16 +1735,19 @@ class TaskManager:
     ) -> str:
         """
         재계획: decomposition → DAG 통합 → LP 재할당 → 재실행 준비
-        
+        dropped subtask들은 executor._dropped_subtasks에 직접 추가됨.
+
         Returns:
-            "no_change" | "fully_replanned" | "full_replan_requested"
+            "no_change" | "fully_replanned"
         """
+
+        # 실행 실패한 subtask만 필터링
         failed = [sid for sid, r in execution_results.items() if not r.success]
         if not failed:
             return "no_change"
         
+        # 현재 subtask dependency graph를 불러오기
         edges = load_subtask_dag_edges(self.base_path, task_name)
-        parallel_groups = load_subtask_dag_parallel_groups(self.base_path, task_name)
         
         # GroupAgent 생성
         group_agent = GroupAgent(self.llm, self.gpt_version)
@@ -1763,35 +1764,65 @@ class TaskManager:
         
         updated = False
 
-        # 의존성 체크 (로그만 남기고 재계획은 항상 시도)
-        for sid in failed:
-            if subtask_has_dependency(sid, edges):
-                print(f"[Feedback] Subtask {sid} has dependencies, but proceeding with group-level replan")
-                break
+        # 의존성 기반 replan 그룹 구성:
+        # 실패한 subtask + DAG edges로 연결된 미실행 subtask들
+        # (parallel_groups는 실행 전용, replan 그룹은 의존성 기반)
+        succeeded_ids = {sid for sid, r in execution_results.items() if r.success}
+        dropped_ids = getattr(executor, '_dropped_subtasks', set()) if executor else set()
 
-        # 그룹별 재계획 (decomposition_callback 사용)
-        if partial_replanner is not None and parallel_groups:
-            processed_groups = set()
-            
-            for failed_id in failed:
-                # 실패한 서브태스크가 속한 그룹 찾기
-                found_group = None
-                for gid, sids in parallel_groups.items():
-                    if failed_id in sids:
-                        found_group = gid
-                        break
-                
-                if found_group is None or found_group in processed_groups:
+        def _build_dependency_group(failed_id: int) -> List[int]:
+            """실패한 subtask에서 edges로 연결된 미실행 subtask들을 BFS로 수집"""
+            # 양방향 인접 리스트 구성 (미실행 노드만)
+            adj = {}
+            all_node_ids = set()
+            for frm, to in edges:
+                all_node_ids.add(frm)
+                all_node_ids.add(to)
+                adj.setdefault(frm, set()).add(to)
+                adj.setdefault(to, set()).add(frm)
+
+            # BFS: failed_id에서 시작하여 연결된 미실행 subtask 수집
+            group = set()
+            queue = [failed_id]
+            visited = set()
+            while queue:
+                current = queue.pop(0)
+                if current in visited:
                     continue
-                
-                processed_groups.add(found_group)
-                subtask_ids_in_group = [sid for sid in parallel_groups[found_group] if isinstance(sid, int) and sid > 0]
+                visited.add(current)
+                # 이미 성공했거나 drop된 subtask는 그룹에 포함하지 않음 (단, failed_id 자체는 포함)
+                if current != failed_id and (current in succeeded_ids or current in dropped_ids):
+                    continue
+                group.add(current)
+                # 연결된 미실행 노드 탐색
+                for neighbor in adj.get(current, []):
+                    if neighbor not in visited and neighbor not in succeeded_ids and neighbor not in dropped_ids:
+                        queue.append(neighbor)
+
+            return sorted(group)
+
+        if partial_replanner is not None:
+            processed_failed = set()
+
+            for failed_id in failed:
+                if failed_id in processed_failed:
+                    continue
+
+                # 의존성 기반 replan 그룹 구성
+                subtask_ids_in_group = _build_dependency_group(failed_id)
+                # 이 그룹에 포함된 failed subtask들은 중복 처리 방지
+                for sid in subtask_ids_in_group:
+                    if sid in failed:
+                        processed_failed.add(sid)
+
+                print(f"\n[Feedback] Dependency-based replan group for failed subtask {failed_id}: {subtask_ids_in_group}")
+
                 if not subtask_ids_in_group:
                     continue
                 
                 # ReplanContext 구성
                 context = partial_replanner.build_context_for_replan(
-                    group_id=found_group,
+                    group_id=failed_id,
                     subtask_ids_in_group=subtask_ids_in_group,
                     local_env="Kitchen environment with standard appliances"
                 )
@@ -1799,7 +1830,7 @@ class TaskManager:
                 if context is None:
                     continue
                 
-                print(f"\n[Feedback] Attempting group-level decomposition for group {found_group}")
+                print(f"\n[Feedback] Attempting group-level decomposition for group {failed_id}")
                 
                 # 현재 문제/액션 정보 수집
                 plans_dir = self.file_processor.subtask_pddl_plans_path
@@ -1832,7 +1863,7 @@ class TaskManager:
                 
                 # 그룹 재계획
                 success = partial_replanner.replan_group(
-                    group_id=found_group,
+                    group_id=failed_id,
                     subtask_ids_in_group=subtask_ids_in_group,
                     context=context,
                     domain_content=domain_content_actual,
@@ -1843,11 +1874,17 @@ class TaskManager:
                 
                 if success == "dropped":
                     # 물리적으로 불가능한 서브태스크가 LLM에 의해 drop됨
-                    print(f"[Feedback] Group {found_group}: failed subtask(s) dropped as physically impossible")
-                    return "dropped"
+                    # 이 그룹의 failed subtask들만 dropped로 표시 (다른 그룹은 계속 처리)
+                    if executor is not None:
+                        for sid in subtask_ids_in_group:
+                            if sid in failed:
+                                print(f"[Feedback] Subtask {sid} dropped (physically impossible)")
+                                executor._dropped_subtasks.add(sid)
+                    print(f"[Feedback] Group {failed_id}: failed subtask(s) dropped as physically impossible")
+                    continue  # 다른 failed subtask 그룹도 계속 처리
 
                 if success == "replanned":
-                    print(f"[Feedback] Group {found_group} successfully replanned via decomposition")
+                    print(f"[Feedback] Group {failed_id} successfully replanned via decomposition")
 
                     replanned_ids = [
                         sid for sid in ([context.failed_subtask_id] + context.remaining_pending_ids)
@@ -1858,7 +1895,7 @@ class TaskManager:
                     dag_integrated = self.integrate_replanned_subtasks_to_dag(
                         task_name=task_name,
                         task_idx=task_idx,
-                        original_group_id=found_group,
+                        original_group_id=failed_id,
                         replanned_subtask_ids=replanned_ids,
                         new_plans=current_actions_by_id,
                         state_store=state_store
@@ -1885,7 +1922,7 @@ class TaskManager:
                         print("[Feedback] Warning: No task_robot_ids provided, skipping LP reallocation")
                     
                     updated = True
-                    break
+                    # break하지 않고 나머지 failed 그룹도 계속 처리 (drop 등)
         
         # Fallback
         if not updated:
@@ -1901,6 +1938,8 @@ class TaskManager:
             precond_dir = self.file_processor.precondition_subtasks_path
             
             for sid in failed:
+                if executor and sid in executor._dropped_subtasks:
+                    continue
                 if subtask_has_dependency(sid, edges):
                     continue
                 result = execution_results.get(sid)

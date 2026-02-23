@@ -194,7 +194,7 @@ class MultiRobotExecutor:
 
         # NAV rotation-only detection
         self.nav_rotation_only_count: List[int] = []
-        self.nav_rotation_only_threshold = 6
+        self.nav_rotation_only_threshold = 3
 
         # [Navigation 실패 감지 관련 변수]
         # 회전만 반복하는 Deadlock 상태 감지용 카운터
@@ -202,7 +202,7 @@ class MultiRobotExecutor:
         self.nav_oscillation_radius = 0.25   # 이 반경 이내면 "같은 위치"로 판단
         
         # Oscillation (앞뒤 진동) 감지 관련 파라미터
-        self.nav_oscillation_threshold = 4   # N회 재방문 감지 시 oscillation으로 판정
+        self.nav_oscillation_threshold = 3   # N회 재방문 감지 시 oscillation으로 판정
         self.nav_oscillation_move_thresh = 0.15  # 이 거리 이상 움직여야 히스토리에 기록
         self.nav_oscillation_cooldown_iters = 10  # recovery 후 N회 반복동안 감지 건너뜀
 
@@ -1211,6 +1211,15 @@ class MultiRobotExecutor:
                 })
             time.sleep(0.3)
 
+    def _clear_agent_queue(self, agent_id: int):
+        """해당 로봇의 action queue를 비움 (네비게이션 복구 등 남은 액션 정리)"""
+        with self.action_lock:
+            if self.action_queues and agent_id < len(self.action_queues):
+                cleared = len(self.action_queues[agent_id])
+                self.action_queues[agent_id].clear()
+                if cleared > 0:
+                    print(f"[Robot{agent_id+1}] Cleared {cleared} queued actions")
+
     def GoToObject(self, agent_id: int, dest_obj: str) -> bool:
         """로봇을 목적지까지 이동시켜주는 함수, ObjectNavExpertAction을 활용해 장애물을 피해가며 목적지 도달 후 물체를 바라보도록 정렬시킴 """
         print(f"[Robot{agent_id+1}] Going to {dest_obj}")
@@ -1237,6 +1246,7 @@ class MultiRobotExecutor:
         collision_retry_count = 0 # 충돌 회피 시도 횟수
         max_collision_retries = 3 # 최대 충돌 회피 시도 횟수
         prev_rot_only = self.nav_rotation_only_count[agent_id] if agent_id < len(self.nav_rotation_only_count) else 0
+        rot_recovery_count = 0  # rotation-only 복구 연속 횟수 (복구 전략 에스컬레이션용)
 
         # Oscillation 감지용 위치 히스토리 (실제 이동한 위치만 기록)
         position_history: List[Tuple[float, float]] = []  # (x, z) 리스트
@@ -1342,27 +1352,37 @@ class MultiRobotExecutor:
             else:
                 count_since_update = 0
                 collision_retry_count = 0  # 이동 중이면 충돌 카운트 초기화
+                rot_recovery_count = 0     # 실제 이동 성공 시 복구 에스컬레이션 리셋
 
             # rotation-only 반복 감지 시 강제 재탐색
             if agent_id < len(self.nav_rotation_only_count):
                 rot_only = self.nav_rotation_only_count[agent_id]
                 if rot_only - prev_rot_only >= self.nav_rotation_only_threshold:
-                    # 강제 회피: 뒤로 한 칸 + 약간 회전
-                    self._enqueue_action({
-                        'action': 'MoveBack',
-                        'agent_id': agent_id
-                    }, front=True)
-                    self._enqueue_action({
-                        'action': 'RotateRight',
-                        'degrees': 45,
-                        'agent_id': agent_id
-                    }, front=True)
-                    clost_node_location[0] += 1
+                    rot_recovery_count += 1
+                    skip_amount = min(rot_recovery_count, 5)  # 접근점 건너뛰기: 1 → 2 → 3 → 4 → 5
+
+                    # 다른 로봇이 막고 있으면 양보 요청
+                    blocking = self._identify_blocking_robot(agent_id, threshold=0.65)
+                    if blocking is not None and blocking != agent_id:
+                        self._issue_yield_request(
+                            blocking_id=blocking,
+                            requester_id=agent_id,
+                            target_object=dest_obj
+                        )
+                        print(f"[Robot{agent_id+1}] Rotation stuck → 요청: Robot{blocking+1} 길 비켜줘, skip +{skip_amount}")
+                    else:
+                        print(f"[Robot{agent_id+1}] Rotation stuck → new approach point, skip +{skip_amount}")
+
+                    # MoveBack 없이 접근점만 변경 (뒤로 빠지기는 냉장고/서랍 열 때만)
+                    clost_node_location[0] += skip_amount
                     max_positions = len(self.reachable_positions) // 5
                     if clost_node_location[0] >= max_positions:
                         clost_node_location[0] = 0
                     crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
-                    prev_rot_only = rot_only
+                    # 카운터 리셋
+                    self.nav_rotation_only_count[agent_id] = 0
+                    prev_rot_only = 0
+                    count_since_update += 2
                     time.sleep(0.1)
 
             # 로봇끼리 서로 길을 막고 있는지 확인
@@ -1428,6 +1448,10 @@ class MultiRobotExecutor:
             # Recovery loop: re-sample approach + wait + retry (limited)
             while recovery_attempts < max_recoveries and dist_goal > goal_thresh:
                 recovery_attempts += 1
+                # 회전 카운터 리셋: 이전 루프의 누적값이 recovery에 영향 주지 않도록
+                if agent_id < len(self.nav_rotation_only_count):
+                    self.nav_rotation_only_count[agent_id] = 0
+                    prev_rot_only = 0
                 print(f"[Robot{agent_id+1}] Navigation timeout: recovery {recovery_attempts}/{max_recoveries}")
 
                 # 1) wait briefly to let others move
@@ -1477,7 +1501,11 @@ class MultiRobotExecutor:
 
             if dist_goal > goal_thresh:
                 print(f"[Robot{agent_id+1}] Navigation timeout, giving up")
+                self._clear_agent_queue(agent_id)
                 return False
+
+        # 네비게이션 성공 시 남은 복구 액션 정리
+        self._clear_agent_queue(agent_id)
 
         # [회전 정렬] 로봇이 목적지 물체를 정면으로 바라보도록 회전
         try:
@@ -1523,6 +1551,7 @@ class MultiRobotExecutor:
 
         if dist_goal > goal_thresh:
             print(f"[Robot{agent_id+1}] FAIL to reach {dest_obj}, aborting")
+            self._clear_agent_queue(agent_id)
             return False
 
         print(f"[Robot{agent_id+1}] Reached {dest_obj}")
