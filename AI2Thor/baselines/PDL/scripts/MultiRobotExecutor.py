@@ -96,13 +96,62 @@ class SubTaskExecutionResult:
 # 이동
 # -----------------------------
 def closest_node(node, nodes, no_robot, clost_node_location):
-    """로봇이 특정 목적지까지 갈 때, 시뮬레이션 내에서 이동 가능한(Reachable) 가장 가까운 지점을 계산하는 함수"""
+    """
+    로봇이 특정 목적지까지 갈 때, 이동 가능한(Reachable) 접근 지점을 선택하는 함수.
+
+    사분면 기반 선택: offset이 증가하면 목표물 주변의 다른 방향에서 접근을 시도.
+      offset 0 = 전체 최근접
+      offset 1 = 사분면 1 (북동) 최근접
+      offset 2 = 사분면 2 (남동) 최근접
+      offset 3 = 사분면 3 (남서) 최근접
+      offset 4 = 사분면 4 (북서) 최근접
+      offset 5+ = 각 사분면 내 2번째, 3번째... 최근접
+    """
     crps = []
     distances = distance.cdist([node], nodes)[0]
     dist_indices = np.argsort(np.array(distances))
+
     for i in range(no_robot):
-        pos_index = dist_indices[(i * 5) + clost_node_location[i]]
-        crps.append(nodes[pos_index])
+        offset = clost_node_location[i]
+
+        if offset == 0:
+            # offset 0: 기존 동작 (전체 최근접)
+            crps.append(nodes[dist_indices[0]])
+        else:
+            # 사분면 기반 선택
+            target_x, target_z = node[0], node[2]
+            quadrant = (offset - 1) % 4       # 0~3: 4개 사분면
+            rank_in_quad = (offset - 1) // 4   # 사분면 내 몇 번째 점인지
+
+            found = None
+            quad_count = 0
+            for idx in dist_indices:
+                pt = nodes[idx]
+                dx = pt[0] - target_x
+                dz = pt[2] - target_z
+                # 사분면 판별 (목표물 기준)
+                if quadrant == 0 and dx >= 0 and dz >= 0:
+                    pass  # 북동
+                elif quadrant == 1 and dx >= 0 and dz < 0:
+                    pass  # 남동
+                elif quadrant == 2 and dx < 0 and dz < 0:
+                    pass  # 남서
+                elif quadrant == 3 and dx < 0 and dz >= 0:
+                    pass  # 북서
+                else:
+                    continue
+                if quad_count == rank_in_quad:
+                    found = pt
+                    break
+                quad_count += 1
+
+            if found is not None:
+                crps.append(found)
+            else:
+                # 해당 사분면에 점이 없으면 전체에서 offset번째
+                fallback_idx = min(offset, len(dist_indices) - 1)
+                crps.append(nodes[dist_indices[fallback_idx]])
+
     return crps
 
 
@@ -184,6 +233,10 @@ class MultiRobotExecutor:
         self.yield_clear_distance = 1.5 # Yield 이후 확보되어야 하는 최소 거리
         self.yield_margin = 0.3
         self.yield_retry_delay_s = 0.5
+        # yield 재시도 누적 시 blocker 강제 unstick (MoveBack+Rotate)
+        self.yield_force_unstick_attempts = 4
+        self.yield_force_unstick_cooldown_s = 1.0
+        self._last_forced_unstick: Dict[int, float] = {}
 
         # Action 완료 여부 동기화
         self.action_cv = threading.Condition() # 특정 로봇의 Action 완료를 기다리기 위한 Condition Variable
@@ -1066,13 +1119,19 @@ class MultiRobotExecutor:
         vx /= norm
         vz /= norm
 
-        # 수직 방향 2개 후보
+        # 8방향 후보 (우선순위: 수직 → 반대 → 대각선)
+        inv2 = 0.707  # 1/sqrt(2) for diagonal normalization
         candidates = [
-            ( -vz,  vx),  # left
-            (  vz, -vx),  # right
+            ( -vz,  vx),                              # left (수직)
+            (  vz, -vx),                              # right (수직)
+            ( -vx, -vz),                              # backward (requester 반대)
+            ( (-vx - vz) * inv2, (-vz + vx) * inv2),  # back-left (대각선)
+            ( (-vx + vz) * inv2, (-vz - vx) * inv2),  # back-right (대각선)
+            ( ( vx - vz) * inv2, ( vz + vx) * inv2),  # front-left (대각선)
+            ( ( vx + vz) * inv2, ( vz - vx) * inv2),  # front-right (대각선)
         ]
 
-        # reachable 중에서 가장 가까운 점을 고르기
+        # 각 방향별로 가장 가까운 reachable 점 찾기 (방향 최선 유지)
         best = None
         best_d = float("inf")
 
@@ -1080,19 +1139,51 @@ class MultiRobotExecutor:
             target_x = blocker_pos["x"] + px * step
             target_z = blocker_pos["z"] + pz * step
 
-            # reachable_positions_는 dict list: {"x","y","z"}
+            # 이 방향 후보의 최적 reachable 점
+            dir_best = None
+            dir_best_d = float("inf")
             for rp in self.reachable_positions_:
                 dx = rp["x"] - target_x
                 dz = rp["z"] - target_z
                 d = (dx*dx + dz*dz) ** 0.5
-                if d < best_d:
-                    best_d = d
-                    best = rp
+                if d < dir_best_d:
+                    dir_best_d = d
+                    dir_best = rp
 
-        # 너무 먼 점이면 실패 처리(선택)
-        if best is None or best_d > 1.0:
+            # 이 방향이 reachable하고 requester에서 멀어지는 점이면 우선
+            if dir_best and dir_best_d < 1.0:
+                # requester와의 거리가 현재보다 멀어지는지 확인
+                new_dist_to_req = ((dir_best["x"] - requester_pos["x"])**2 +
+                                   (dir_best["z"] - requester_pos["z"])**2) ** 0.5
+                cur_dist_to_req = ((blocker_pos["x"] - requester_pos["x"])**2 +
+                                   (blocker_pos["z"] - requester_pos["z"])**2) ** 0.5
+                # requester에서 멀어지는 점 우선, 같은 거리면 reachable 정확도 우선
+                score = dir_best_d - (new_dist_to_req - cur_dist_to_req) * 0.5
+                if score < best_d:
+                    best_d = score
+                    best = dir_best
+
+        if best is None:
             return None
         return dict(x=best["x"], y=best["y"], z=best["z"])
+
+    def _force_unstick_blocker(self, blocking_id: int) -> bool:
+        """yield가 반복 실패할 때 blocker를 강제로 뒤로 빼고 회전시켜 데드락 해소."""
+        now = time.time()
+        last = self._last_forced_unstick.get(blocking_id, 0.0)
+        if (now - last) < self.yield_force_unstick_cooldown_s:
+            return False
+        if self._agent_has_pending_actions(blocking_id):
+            return False
+
+        self._enqueue_front([
+            {"action": "RotateRight", "degrees": 45, "agent_id": blocking_id},
+            {"action": "MoveBack", "agent_id": blocking_id},
+            {"action": "MoveBack", "agent_id": blocking_id},
+        ])
+        self._last_forced_unstick[blocking_id] = now
+        print(f"[Yield] Force unstick Robot{blocking_id+1}: MoveBack+Rotate")
+        return True
 
     def _monitor_path_clear_requests(self):
         while not self.task_over:
@@ -1105,6 +1196,7 @@ class MultiRobotExecutor:
                 try:
                     # 최대 재시도 횟수 초과: yield 요청 강제 종료
                     if req.attempts >= 15:
+                        self._force_unstick_blocker(blocking_id)
                         with self.bb_lock:
                             if self.yield_requests.get(blocking_id) == req:
                                 del self.yield_requests[blocking_id]
@@ -1137,8 +1229,17 @@ class MultiRobotExecutor:
                     step_candidates = [0.75, 1.25, 1.75]
                     step = step_candidates[min(req.attempts, len(step_candidates) - 1)]
                     target_position = self._find_yield_position(blocker_pos, requester_pos, step=step)
+
                     if not target_position:
+                        # reachable position을 찾지 못함 → 직접 MoveBack으로 requester 반대방향 이동
                         req.attempts += 1
+                        if not self._agent_has_pending_actions(blocking_id):
+                            self._enqueue_front([
+                                {"action": "MoveBack", "agent_id": blocking_id},
+                                {"action": "MoveBack", "agent_id": blocking_id},
+                            ])
+                            if req.attempts % self.yield_force_unstick_attempts == 0:
+                                self._force_unstick_blocker(blocking_id)
                         req.next_time = now + self.yield_retry_delay_s
                         continue
 
@@ -1149,6 +1250,8 @@ class MultiRobotExecutor:
                         "agent_id": blocking_id
                     }, front=False)
                     req.attempts += 1
+                    if req.attempts % self.yield_force_unstick_attempts == 0:
+                        self._force_unstick_blocker(blocking_id)
                     req.next_time = now + self.yield_retry_delay_s
 
                     # 거리 증가 체크는 다음 루프에서 수행
@@ -1253,6 +1356,11 @@ class MultiRobotExecutor:
         oscillation_count = 0
         oscillation_cooldown = 0  # recovery 후 쿨다운 카운터
 
+        # Yield 통합 관리: GoToObject 단위로 1개만 활성
+        yield_active_for: Optional[int] = None  # 현재 yield 요청 중인 blocking robot id
+        yield_wait_iters = 0  # yield 발행 후 blocker 이동 대기 카운터
+        YIELD_WAIT_MAX = 8    # yield 후 최소 대기 iterations (blocker가 이동할 시간)
+
         # 대상 물체와 가장 가까운 '이동 가능한 지점' 가져오기
         crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
 
@@ -1335,7 +1443,7 @@ class MultiRobotExecutor:
                 }, agent_id=agent_id, timeout=5.0)
 
                 clost_node_location[0] += 1
-                max_positions = len(self.reachable_positions) // 5
+                max_positions = max(4 * 4, len(self.reachable_positions) // 5)  # 사분면4 × 순위4 = 최소 16
                 if clost_node_location[0] >= max_positions:
                     clost_node_location[0] = 0
                 crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
@@ -1353,40 +1461,66 @@ class MultiRobotExecutor:
                 count_since_update = 0
                 collision_retry_count = 0  # 이동 중이면 충돌 카운트 초기화
                 rot_recovery_count = 0     # 실제 이동 성공 시 복구 에스컬레이션 리셋
+                # 실제 이동 성공 → 활성 yield 해소 확인
+                if yield_active_for is not None:
+                    yield_active_for = None
+                    yield_wait_iters = 0
 
-            # rotation-only 반복 감지 시 강제 재탐색
+            # --- 활성 yield 대기 중이면 blocker 이동 시간을 줌 ---
+            if yield_active_for is not None:
+                yield_wait_iters += 1
+                if yield_wait_iters < YIELD_WAIT_MAX:
+                    # blocker가 이동할 시간을 줌 (접근점 변경/yield 재발행 안 함)
+                    time.sleep(0.1)
+                    continue
+                else:
+                    # 대기 끝: yield가 효과 없었음 → 접근점 변경으로 전환
+                    print(f"[Robot{agent_id+1}] Yield to Robot{yield_active_for+1} ineffective, switching approach")
+                    yield_active_for = None
+                    yield_wait_iters = 0
+                    clost_node_location[0] += 1
+                    max_positions = max(4 * 4, len(self.reachable_positions) // 5)  # 사분면4 × 순위4 = 최소 16
+                    if clost_node_location[0] >= max_positions:
+                        clost_node_location[0] = 0
+                    crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
+                    count_since_update = 0
+                    time.sleep(0.1)
+                    continue
+
+            # --- Stuck 감지 (rotation-only + general stall 통합) ---
+            need_yield = False
+            need_approach_change = False
+            skip_amount = 1
+
+            # rotation-only 반복 감지
             if agent_id < len(self.nav_rotation_only_count):
                 rot_only = self.nav_rotation_only_count[agent_id]
                 if rot_only - prev_rot_only >= self.nav_rotation_only_threshold:
                     rot_recovery_count += 1
-                    skip_amount = min(rot_recovery_count, 5)  # 접근점 건너뛰기: 1 → 2 → 3 → 4 → 5
-
-                    # 다른 로봇이 막고 있으면 양보 요청
+                    skip_amount = min(rot_recovery_count, 5)
+                    need_approach_change = True
+                    # 로봇이 막고 있는지 확인
                     blocking = self._identify_blocking_robot(agent_id, threshold=0.65)
                     if blocking is not None and blocking != agent_id:
-                        self._issue_yield_request(
-                            blocking_id=blocking,
-                            requester_id=agent_id,
-                            target_object=dest_obj
-                        )
-                        print(f"[Robot{agent_id+1}] Rotation stuck → 요청: Robot{blocking+1} 길 비켜줘, skip +{skip_amount}")
-                    else:
-                        print(f"[Robot{agent_id+1}] Rotation stuck → new approach point, skip +{skip_amount}")
-
-                    # MoveBack 없이 접근점만 변경 (뒤로 빠지기는 냉장고/서랍 열 때만)
-                    clost_node_location[0] += skip_amount
-                    max_positions = len(self.reachable_positions) // 5
-                    if clost_node_location[0] >= max_positions:
-                        clost_node_location[0] = 0
-                    crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
+                        need_yield = True
                     # 카운터 리셋
                     self.nav_rotation_only_count[agent_id] = 0
                     prev_rot_only = 0
-                    count_since_update += 2
-                    time.sleep(0.1)
 
-            # 로봇끼리 서로 길을 막고 있는지 확인
-            if count_since_update >= 5:
+            # general stall 감지
+            if count_since_update >= 5 and not need_approach_change:
+                blocking = self._identify_blocking_robot(agent_id, threshold=0.65)
+                if blocking is not None and blocking != agent_id:
+                    need_yield = True
+                    need_approach_change = False  # yield 결과를 먼저 기다림
+                else:
+                    collision_retry_count += 1
+                    if collision_retry_count >= max_collision_retries:
+                        need_approach_change = True
+                        collision_retry_count = 0
+
+            # --- 통합 yield 발행 (1회만) ---
+            if need_yield:
                 blocking = self._identify_blocking_robot(agent_id, threshold=0.65)
                 if blocking is not None and blocking != agent_id:
                     issued = self._issue_yield_request(
@@ -1396,28 +1530,26 @@ class MultiRobotExecutor:
                     )
                     if issued:
                         print(f"[Robot{agent_id+1}] 요청: Robot{blocking+1} 길 비켜줘 ({dest_obj})")
+                        yield_active_for = blocking
+                        yield_wait_iters = 0
                     count_since_update = 0
-                    collision_retry_count += 1
                     time.sleep(0.1)
                     continue
-                else:
-                    # 다른 로봇이 막고 있지 않은데도 stuck → 환경 장애물에 갇힘
-                    collision_retry_count += 1
 
+            # --- 접근점 변경 ---
+            if need_approach_change:
+                clost_node_location[0] += skip_amount
+                max_positions = max(4 * 4, len(self.reachable_positions) // 5)  # 사분면4 × 순위4 = 최소 16
+                if clost_node_location[0] >= max_positions:
                     if collision_retry_count >= max_collision_retries:
-                        # 텔레포트 대신 우회/재탐색으로 처리
-                        clost_node_location[0] += 1
-                        count_since_update = 0
-                        collision_retry_count = 0
-                        max_positions = len(self.reachable_positions) // 5
-                        if clost_node_location[0] >= max_positions:
-                            print(f"[Robot{agent_id+1}] Exhausted reachable positions, stopping navigation")
-                            break
-                        crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
-                        time.sleep(0.1)
-                    else:
-                        count_since_update = 0
-                    continue
+                        print(f"[Robot{agent_id+1}] Exhausted reachable positions, stopping navigation")
+                        break
+                    clost_node_location[0] = 0
+                crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
+                print(f"[Robot{agent_id+1}] Switching approach point (skip +{skip_amount})")
+                count_since_update = 0
+                time.sleep(0.1)
+                continue
 
             # 정상 이동 가능 시 경로 최적화 액션 수행
             if count_since_update < 5:
@@ -1435,7 +1567,7 @@ class MultiRobotExecutor:
                 count_since_update = 0
 
                 # 인덱스 범위 초과 확인 (안전 장치)
-                max_positions = len(self.reachable_positions) // 5
+                max_positions = max(4 * 4, len(self.reachable_positions) // 5)  # 사분면4 × 순위4 = 최소 16
                 if clost_node_location[0] >= max_positions:
                     print(f"[Robot{agent_id+1}] Exhausted reachable positions, stopping navigation")
                     break
@@ -1459,7 +1591,7 @@ class MultiRobotExecutor:
 
                 # 2) re-sample a different approach point
                 clost_node_location[0] += 1
-                max_positions = len(self.reachable_positions) // 5
+                max_positions = max(4 * 4, len(self.reachable_positions) // 5)  # 사분면4 × 순위4 = 최소 16
                 if clost_node_location[0] >= max_positions:
                     clost_node_location[0] = 0
                 crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)

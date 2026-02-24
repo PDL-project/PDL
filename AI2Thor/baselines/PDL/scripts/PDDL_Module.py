@@ -2195,12 +2195,24 @@ class TaskManager:
             # 6. 재분해 프롬프트 생성
             redecompose_prompt = "You are redecomposing a failed group of subtasks in a multi-robot collaborative task.\n\n"
 
-            redecompose_prompt += "## CRITICAL RULE: DROP PHYSICALLY IMPOSSIBLE GOALS\n"
+            redecompose_prompt += "## CRITICAL RULE: DISTINGUISH IMPOSSIBLE vs RECOVERABLE FAILURES\n"
             redecompose_prompt += "Before doing anything, read the Failure Information below carefully.\n"
-            redecompose_prompt += "If the failure reason indicates a PHYSICAL CONSTRAINT of an object (e.g., 'not PickUpable', 'not Openable', 'not Toggleable', 'not Sliceable', 'cannot be picked up', 'hand already has something'), "
-            redecompose_prompt += "then the failed subtask's goal is PHYSICALLY IMPOSSIBLE in this environment.\n"
-            redecompose_prompt += "You MUST COMPLETELY REMOVE that goal from your output. Do NOT attempt it with a different approach — the object's physical property cannot change.\n"
-            redecompose_prompt += "Only output subtasks for the REMAINING FEASIBLE goals.\n\n"
+            redecompose_prompt += "Classify the failure into one of TWO categories:\n\n"
+            redecompose_prompt += "### Category A: PHYSICALLY IMPOSSIBLE (DROP the failed subtask's goal)\n"
+            redecompose_prompt += "The failure indicates an INHERENT physical property of the object that CANNOT change:\n"
+            redecompose_prompt += "  - 'X is not an Openable object' → the object type itself cannot be opened/closed\n"
+            redecompose_prompt += "  - 'X is not PickUpable' → the object type itself cannot be picked up\n"
+            redecompose_prompt += "  - 'X is not Toggleable / not Sliceable' → inherent property\n"
+            redecompose_prompt += "In this case, DROP ONLY the specific goal that is impossible. Do NOT drop other unrelated goals.\n\n"
+            redecompose_prompt += "### Category B: RECOVERABLE ERROR (RETRY with corrected actions)\n"
+            redecompose_prompt += "The failure indicates a SOLVABLE situation that can be fixed by adjusting the action sequence:\n"
+            redecompose_prompt += "  - 'Receptacle is CLOSED' → solution: open the receptacle first, then retry\n"
+            redecompose_prompt += "  - 'hand already has something' → solution: drop the held object first\n"
+            redecompose_prompt += "  - 'object not visible / not reachable' → solution: navigate closer or to a different position\n"
+            redecompose_prompt += "  - Navigation timeout / stuck → solution: retry with different approach\n"
+            redecompose_prompt += "In this case, DO NOT drop the goal. Instead, redecompose with corrected action sequences.\n\n"
+            redecompose_prompt += "### IMPORTANT: Only drop goals that are DIRECTLY affected by the impossible constraint.\n"
+            redecompose_prompt += "Other goals in the group that involve DIFFERENT objects must ALWAYS be kept.\n\n"
 
             redecompose_prompt += "## Failure Information\n"
             redecompose_prompt += f"- Failed Subtask ID: {context.failed_subtask_id}\n"
@@ -2213,7 +2225,7 @@ class TaskManager:
             redecompose_prompt += "## Local Environment\n"
             redecompose_prompt += f"{local_env_text if local_env_text else '(Standard kitchen environment)'}\n\n"
 
-            redecompose_prompt += f"## Goals to Consider (REMOVE any that are physically impossible based on failure info above)\n"
+            redecompose_prompt += f"## Goals to Consider (ONLY remove goals that are Category A: physically impossible. Keep all Category B: recoverable goals)\n"
             redecompose_prompt += f"{combined_goals}\n\n"
 
             redecompose_prompt += f"\nAVAILABLE ROBOT SKILLS = {self.available_robot_skills}\n\n"
@@ -2224,13 +2236,15 @@ class TaskManager:
             redecompose_prompt += decompose_prompt
 
             redecompose_prompt += "## Your Task\n"
-            redecompose_prompt += "1. FIRST: Determine which goals are PHYSICALLY IMPOSSIBLE based on the failure reason. DROP those goals entirely.\n"
-            redecompose_prompt += "2. For the remaining feasible goals, redecompose into NEW subtasks that:\n"
+            redecompose_prompt += "1. FIRST: Classify the failure as Category A (physically impossible) or Category B (recoverable).\n"
+            redecompose_prompt += "2. If Category A: DROP ONLY the specific failed goal. Keep ALL other unrelated goals.\n"
+            redecompose_prompt += "3. If Category B: Keep the failed goal and redecompose with corrected actions (e.g., add OpenObject before PutObject if receptacle was closed).\n"
+            redecompose_prompt += "4. For all remaining goals, redecompose into NEW subtasks that:\n"
             redecompose_prompt += "   a. Account for already achieved effects (don't duplicate successful work)\n"
             redecompose_prompt += "   b. Account for actions already completed before failure (their effects are real)\n"
             redecompose_prompt += "   c. Maximize parallelism where dependencies allow\n"
             redecompose_prompt += "   d. Use ONLY available skills and existing objects\n"
-            redecompose_prompt += "3. If ALL goals are impossible, return an empty subtask list with a comment explaining why.\n"
+            redecompose_prompt += "5. Only return an empty subtask list if ALL goals are physically impossible.\n"
             
             # 7. LLM 호출
             print("  Calling LLM for redecomposition...")

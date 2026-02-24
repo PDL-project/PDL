@@ -1,0 +1,51 @@
+=== EXAMPLE OUTPUT FORMAT START ===
+# Task Description: Move the Toaster to the CounterTop.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at toaster location
+#2. Robot not holding toaster
+
+# SubTask 6: Move the Toaster to the CounterTop.
+    Skills Required: GoToObject, PickupObject, GoToObject, PutObject
+    Related Objects: toaster(Location=diningTable), counterTop(Location=floor)
+
+GoToObject(robot1, toaster)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 toaster)
+
+PickupObject(robot1, toaster, diningTable)
+   Preconditions:
+     (at-location toaster diningTable)
+     (at robot1 toaster)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 toaster)
+
+GoToObject(robot1, counterTop)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 counterTop)
+
+PutObject(robot1, toaster, counterTop)
+   Preconditions:
+     (holding robot1 toaster)
+     (at robot1 counterTop)
+     (not (inaction robot1))
+     (not (is-fridge counterTop))
+     (not (object-close robot1 counterTop))
+   Effects:
+     (at-location toaster counterTop)
+     (not (holding robot1 toaster))
+
+Goal condition:
+(at-location toaster counterTop)
+
+# Task Move the Toaster to the CounterTop is done.
+=== EXAMPLE OUTPUT FORMAT END ===
