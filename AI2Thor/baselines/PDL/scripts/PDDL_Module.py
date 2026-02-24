@@ -775,6 +775,11 @@ class TaskManager:
 
                 binding_pairs = binding_pairs_from_subtask_dag(self.subtask_dag)
 
+                # parallel_groups를 LP에 전달하여 같은 그룹 내 분산 배정 유도
+                pg_for_lp = None
+                if self.subtask_dag and hasattr(self.subtask_dag, 'parallel_groups'):
+                    pg_for_lp = {str(k): v for k, v in self.subtask_dag.parallel_groups.items()}
+
                 assignment = assign_subtasks_cp_sat(
                     subtasks=parsed_subtasks,  # _decomposed_plan_to_subtasks() 결과 (id, skills 들어있어야 함)
                     robot_ids=task_robot_ids,  # 예: [1,2,3]
@@ -784,6 +789,7 @@ class TaskManager:
                     binding_pairs=binding_pairs,
                     robot_positions=robot_positions,
                     object_positions=object_positions,
+                    parallel_groups=pg_for_lp,
                 )
 
                 # 작업 할당 결과 출력
@@ -2856,7 +2862,12 @@ class TaskManager:
             # 6. LP 작업 할당 실행
             from LP_Module import assign_subtasks_cp_sat
             import robots
-            
+
+            # parallel_groups를 LP에 전달
+            pg_for_lp = None
+            if "parallel_groups" in integrated_dag:
+                pg_for_lp = {str(k): v for k, v in integrated_dag["parallel_groups"].items()}
+
             assignment = assign_subtasks_cp_sat(
                 subtasks=parsed_subtasks,
                 robot_ids=task_robot_ids,
@@ -2866,6 +2877,7 @@ class TaskManager:
                 binding_pairs=binding_pairs,
                 robot_positions=robot_positions,
                 object_positions=object_positions,
+                parallel_groups=pg_for_lp,
             )
             
             # 7. 할당 결과 출력 및 저장

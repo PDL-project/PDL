@@ -453,50 +453,46 @@ class DAGGenerator:
             )
         summaries_txt = "\n".join(lines)
 
-        # few-shot: subtask dependency 예시
+        # few-shot: subtask dependency 예시 (ID는 1-based, 실제 subtask ID와 일치)
         fewshot = (
             "### Example A (HAS dependency: clear causal link)\n"
-            "0: preconds=['container is closed'], effects=['container is open']\n"
-            "1: preconds=['container is open'], effects=['item stored']\n"
+            "1: preconds=['container is closed'], effects=['container is open']\n"
+            "2: preconds=['container is open'], effects=['item stored']\n"
             "Output:\n"
             "{\n"
             '  "dependencies": [\n'
-            '    {"from": 0, "to": 1, "type": "causal", "reason": "Subtask 1 requires container to be open"}\n'
-            "  ],\n"
-            '  "parallel_groups": [[0], [1]]\n'
+            '    {"from": 1, "to": 2, "type": "causal", "reason": "Subtask 2 requires container to be open"}\n'
+            "  ]\n"
             "}\n\n"
 
             "### Example B (NO dependency: completely different objects)\n"
-            "0: objects=['document'], effects=['document archived']\n"
-            "1: objects=['switch'], effects=['switch turned off']\n"
+            "1: objects=['document'], effects=['document archived']\n"
+            "2: objects=['switch'], effects=['switch turned off']\n"
             "Output:\n"
             "{\n"
-            '  "dependencies": [],\n'
-            '  "parallel_groups": [[0, 1]]\n'
+            '  "dependencies": []\n'
             "}\n\n"
 
             "### Example C (HAS dependency: SAME OBJECT manipulated sequentially)\n"
-            "0: name='Wash the Fork', objects=['fork', 'sink'], effects=['fork is clean', 'fork at sink']\n"
-            "1: name='Put Fork in Bowl', objects=['fork', 'bowl'], preconds=['fork is clean'], effects=['fork in bowl']\n"
+            "1: name='Wash the Fork', objects=['fork', 'sink'], effects=['fork is clean', 'fork at sink']\n"
+            "2: name='Put Fork in Bowl', objects=['fork', 'bowl'], preconds=['fork is clean'], effects=['fork in bowl']\n"
             "Output:\n"
             "{\n"
             '  "dependencies": [\n'
-            '    {"from": 0, "to": 1, "type": "causal", "reason": "Fork must be washed before putting in bowl"},\n'
-            '    {"from": 0, "to": 1, "type": "resource", "reason": "Same fork object - cannot be manipulated in parallel"}\n'
-            "  ],\n"
-            '  "parallel_groups": [[0], [1]]\n'
+            '    {"from": 1, "to": 2, "type": "causal", "reason": "Fork must be washed before putting in bowl"},\n'
+            '    {"from": 1, "to": 2, "type": "resource", "reason": "Same fork object - cannot be manipulated in parallel"}\n'
+            "  ]\n"
             "}\n\n"
 
             "### Example D (HAS dependency: object state change)\n"
-            "0: objects=['apple'], effects=['robot holding apple']\n"
-            "1: objects=['apple', 'fridge'], preconds=['robot holding apple'], effects=['apple in fridge']\n"
+            "1: objects=['apple'], effects=['robot holding apple']\n"
+            "2: objects=['apple', 'fridge'], preconds=['robot holding apple'], effects=['apple in fridge']\n"
             "Output:\n"
             "{\n"
             '  "dependencies": [\n'
-            '    {"from": 0, "to": 1, "type": "causal", "reason": "Must hold apple before putting in fridge"},\n'
-            '    {"from": 0, "to": 1, "type": "binding", "reason": "Apple must be carried by same robot"}\n'
-            "  ],\n"
-            '  "parallel_groups": [[0], [1]]\n'
+            '    {"from": 1, "to": 2, "type": "causal", "reason": "Must hold apple before putting in fridge"},\n'
+            '    {"from": 1, "to": 2, "type": "binding", "reason": "Apple must be carried by same robot"}\n'
+            "  ]\n"
             "}\n\n"
         )
 
@@ -508,27 +504,29 @@ class DAGGenerator:
             f"{fewshot}"
             "SUBTASK SUMMARIES:\n"
             f"{summaries_txt}\n\n"
+            "IMPORTANT: Use the EXACT subtask IDs as shown above. IDs are 1-based (starting from 1, NOT 0).\n\n"
             "Return JSON only with schema:\n"
             "{\n"
             '  "dependencies": [\n'
-            '    {"from": <int>, "to": <int>, "type": "<causal|resource|binding|ordering>", "reason": "<brief>"},\n'
+            '    {"from": <subtask_id>, "to": <subtask_id>, "type": "<causal|resource|binding|ordering>", "reason": "<brief>"},\n'
             "    ...\n"
-            "  ],\n"
-            '  "parallel_groups": [\n'
-            "    [<subtask_ids parallel>],\n"
-            "    [<next step>]\n"
             "  ]\n"
             "}\n\n"
             "DEPENDENCY DETECTION RULES (IMPORTANT!):\n"
-            "1. SHARED OBJECT = DEPENDENCY: If two subtasks manipulate the SAME physical object (e.g., both use 'fork'),\n"
-            "   they CANNOT run in parallel. Add a 'resource' dependency.\n"
-            "2. CAUSAL: If subtask B's precondition mentions a state that subtask A's effect produces\n"
-            "   (e.g., A: 'robot holding X', B needs 'robot holding X'), add 'causal' dependency.\n"
-            "3. BINDING: If an object must be held/carried across subtasks (pickup in A, use in B), add 'binding'.\n"
-            "4. SEQUENTIAL OPERATIONS: Actions like 'wash X then put X somewhere' are ALWAYS sequential.\n\n"
-            "RULES FOR NO DEPENDENCY:\n"
-            "- Only return empty dependencies if subtasks use COMPLETELY DIFFERENT objects.\n"
-            "- Generic robot states ('robot not inaction') do NOT create dependencies.\n\n"
+            "1. SHARED TARGET RECEPTACLE = DEPENDENCY: If two subtasks PUT objects into the SAME receptacle\n"
+            "   (e.g., both put items into 'drawer1', both put items into 'fridge'), add a 'resource' dependency.\n"
+            "   The receptacle must be OPENED/CLOSED or directly modified by both subtasks.\n"
+            "2. SAME MANIPULATED OBJECT: If two subtasks pick up / move / modify the SAME object (e.g., both use 'fork'),\n"
+            "   add a 'resource' dependency.\n"
+            "3. CAUSAL: If subtask B's precondition requires a state that subtask A's effect produces, add 'causal'.\n"
+            "4. BINDING: If an object must be held/carried across subtasks (pickup in A, use in B), add 'binding'.\n\n"
+            "RULES FOR NO DEPENDENCY (CRITICAL!):\n"
+            "- SHARED SOURCE LOCATION is NOT a dependency. If subtasks pick up DIFFERENT objects from the same table/surface\n"
+            "  (e.g., 'pick fork from diningTable' and 'pick mug from diningTable'), they CAN run in parallel.\n"
+            "  A table/countertop/floor is a passive surface — multiple robots can pick up different items simultaneously.\n"
+            "- Generic shared locations (kitchen, floor, room) do NOT create dependencies.\n"
+            "- Generic robot states ('robot not in action', 'robot not holding') do NOT create dependencies.\n"
+            "- When in doubt, ask: 'Do both subtasks MODIFY the same object's state?' If not, NO dependency.\n\n"
             "Output ONLY valid JSON. No markdown.\n"
         )
         return prompt
@@ -566,16 +564,9 @@ class DAGGenerator:
                     reason=d.get("reason", "")
                 ))
 
-            # parallel_groups가 없으면 causal만으로 레벨 계산해서 만들기
-            pg = {}
-            raw_pg = data.get("parallel_groups")
-            if isinstance(raw_pg, list) and raw_pg:
-                for gi, g in enumerate(raw_pg):
-                    pg[gi] = [int(x) for x in g]
-            else:
-                # causal + ordering을 스케줄 제약으로 사용 (실제 node ID 사용)
-                node_ids = [s.id for s in summaries]
-                pg = self._compute_subtask_parallel_groups(node_ids, edges)
+            # parallel_groups: LLM 반환값은 0-based/1-based 혼동 위험 → 항상 edges에서 계산
+            node_ids = [s.id for s in summaries]
+            pg = self._compute_subtask_parallel_groups(node_ids, edges)
 
             return SubtaskDAG(
                 task_name=task_name,

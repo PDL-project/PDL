@@ -6,7 +6,7 @@ import ast
 import math
 
 # ----------------------------
-# 로봇들의 스킬/능력 추출 함수 모음 부분
+# 로봇들의 능력 추출 함수 모음 부분
 # ----------------------------
 
 def get_capacity(robot_info: dict) -> float:
@@ -18,18 +18,6 @@ def get_capacity(robot_info: dict) -> float:
     if "mass" in robot_info:
         return float(robot_info["mass"])
     return 0.0
-
-
-def robot_skill_map(robot_ids: List[int], robots_db: List[dict]) -> Dict[int, Set[str]]:
-    """
-    robots.py에서 각 로봇들의 스킬들을 읽어오는 함수
-    (예: 1: {'Pickup', 'Move'})
-    """
-    m: Dict[int, Set[str]] = {}
-    for rid in robot_ids:
-        info = robots_db[rid - 1]  # 1-based -> 0-based
-        m[rid] = set((s or "").strip() for s in info.get("skills", []))
-    return m
 
 
 def robot_capacity_map(robot_ids: List[int], robots_db: List[dict]) -> Dict[int, float]:
@@ -188,36 +176,8 @@ def first_target_object_from_plan(plan_actions: List[str]) -> Optional[str]:
     return None
 
 
-# -----------------------------------------
-# Skill 확인 함수
-# -----------------------------------------
-
-def build_can_matrix(
-    subtasks: List[dict],
-    robot_ids: List[int],
-    robots_db: List[dict],
-    normalize: bool = True
-) -> Dict[Tuple[int, int], int]:
-    rskills = robot_skill_map(robot_ids, robots_db)
-    """
-    각 서브태스크가 요구하는 스킬을 로봇이 모두 가졌는지 대조하여, 배정 가능 여부(0 또는 1)를 행렬 형태로 구성해주는 함수
-    """
-    can: Dict[Tuple[int, int], int] = {}
-    for st in subtasks:
-        sid = int(st["id"])
-        req_raw = st.get("skills", []) or []
-        if normalize:
-            req = set((s or "").strip() for s in req_raw)
-        else:
-            req = set(req_raw)
-
-        for rid in robot_ids:
-            can[(sid, rid)] = 1 if req.issubset(rskills[rid]) else 0
-    return can
-
-
 # ======================================================
-# 메인 프로세스 부분, 할당 실행 함수 (현재 기준: 스킬을 가지고 있는가? mass 능력이 충분한가? binding 포함 관계인가?)
+# 메인 프로세스 부분, 할당 실행 함수 (현재 기준: mass 능력이 충분한가? binding 포함 관계인가?)
 # ======================================================
 
 def assign_subtasks_cp_sat(
@@ -236,6 +196,9 @@ def assign_subtasks_cp_sat(
     # ↓↓↓ 로드 밸런싱 파라미터
     balance_mode: str = "sumsq",  # "max" or "sumsq"
     balance_weight: int = 200,
+    # ↓↓↓ 병렬 그룹 인식 파라미터
+    parallel_groups: Optional[Dict[str, List[int]]] = None,
+    parallel_penalty_weight: int = 500,
 ) -> Dict[int, int]:
     """
     CP-SAT 기반 subtask -> robot assignment.
@@ -245,11 +208,11 @@ def assign_subtasks_cp_sat(
 
     Constraints (hard):
       1) Each subtask assigned to exactly one robot
-      2) Skill feasibility (can matrix)
-      3) Mass feasibility (required_mass <= capacity)
-      4) Binding pairs: same robot must do both subtasks
+      2) Mass feasibility (required_mass <= capacity)
+      3) Binding pairs: same robot must do both subtasks
 
     Objective (우선순위):
+      0순위) 병렬 그룹 분산 — 같은 그룹 내 subtask을 서로 다른 로봇에 배정 (weight=500)
       1순위) 로드 밸런싱 — 로봇 간 작업량 균등 분배 (sumsq, weight=200)
       2순위) 거리 비용 — 로봇→대상 오브젝트 거리, 0.0~1.0 정규화 (weight=1)
     """
@@ -257,9 +220,6 @@ def assign_subtasks_cp_sat(
 
     # ---- ids ----
     sids = [int(st["id"]) for st in subtasks]
-
-    # ---- can matrix ----
-    can = build_can_matrix(subtasks, robot_ids, robots_db)
 
     # ---- costs ----
     if cost_by_subtask is None:
@@ -284,19 +244,13 @@ def assign_subtasks_cp_sat(
     for sid in sids:
         model.Add(sum(x[(sid, rid)] for rid in robot_ids) == 1)
 
-    # 2) skill feasibility
-    for sid in sids:
-        for rid in robot_ids:
-            if can[(sid, rid)] == 0:
-                model.Add(x[(sid, rid)] == 0)
-
-    # 3) mass feasibility
+    # 2) mass feasibility
     for sid in sids:
         for rid in robot_ids:
             if req_mass[sid] > cap[rid] + 1e-9:
                 model.Add(x[(sid, rid)] == 0)
 
-    # 4) binding (same robot)
+    # 3) binding (same robot)
     if binding_pairs is None:
         binding_pairs = []
     for (a, b) in binding_pairs:
@@ -330,6 +284,31 @@ def assign_subtasks_cp_sat(
             # 0.0~1.0 소수점 정규화 (CP-SAT 정수 제약 → ×1000으로 정밀도 유지)
             dist_cost_map[key] = int((d / max_dist) * 1000)
 
+    # ---- parallel group penalty ----
+    # 같은 병렬 그룹 내에서 한 로봇이 여러 subtask을 맡으면 패널티
+    # 원리: 그룹 g에서 로봇 r이 받은 subtask 수 = pg_load[g,r]
+    #       pg_load가 2 이상이면 초과분(pg_load - 1)^2 만큼 패널티
+    pg_penalty_terms: List[cp_model.IntVar] = []
+    if parallel_groups:
+        for gk, group_sids in parallel_groups.items():
+            # 이 그룹에 속한 subtask 중 실제로 존재하는 것만 필터
+            valid_sids = [s for s in group_sids if s in sids]
+            if len(valid_sids) <= 1:
+                continue
+            for rid in robot_ids:
+                # 이 그룹에서 이 로봇이 맡은 subtask 수
+                pg_load = model.NewIntVar(0, len(valid_sids), f"pg_load_g{gk}_r{rid}")
+                model.Add(pg_load == sum(x[(sid, rid)] for sid in valid_sids))
+                # 초과분: max(0, pg_load - 1)
+                excess = model.NewIntVar(0, len(valid_sids), f"pg_excess_g{gk}_r{rid}")
+                model.AddMaxEquality(excess, [pg_load - 1, model.NewConstant(0)])
+                # 초과분 제곱 -> 2개 초과보다 3개 초과가 훨씬 큰 패널티
+                excess_sq = model.NewIntVar(0, len(valid_sids) ** 2, f"pg_exsq_g{gk}_r{rid}")
+                model.AddMultiplicationEquality(excess_sq, excess, excess)
+                pg_penalty_terms.append(excess_sq)
+
+    pg_penalty = sum(pg_penalty_terms) if pg_penalty_terms else 0
+
     # ---- load balancing vars ----
     load_by_robot: Dict[int, cp_model.IntVar] = {}
     for rid in robot_ids:
@@ -358,9 +337,10 @@ def assign_subtasks_cp_sat(
         # default: minimize maximum load
         balance_cost = max_load if max_load is not None else 0
 
-    # 1순위: 로드 밸런싱 (weight=200), 2순위: 거리 (weight=1)
+    # 0순위: 병렬 그룹 분산 (weight=500), 1순위: 로드 밸런싱 (weight=200), 2순위: 거리 (weight=1)
     model.Minimize(
-        balance_weight * balance_cost
+        parallel_penalty_weight * pg_penalty
+        + balance_weight * balance_cost
         + distance_weight * distance_cost
     )
 
@@ -372,7 +352,7 @@ def assign_subtasks_cp_sat(
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise RuntimeError(
             "No feasible assignment. "
-            "Check: (1) skill mismatch, (2) mass/capacity too small, (3) binding chain impossible. "
+            "Check: (1) mass/capacity too small, (2) binding chain impossible. "
             "If parallel is hard, consider enabling soft parallel."
         )
 
