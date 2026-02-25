@@ -64,6 +64,17 @@ action_queue = []
 
 task_over = False
 
+# 에이전트별로 ObjectNavExpertAction이 연속으로 None(경로 없음)을 반환한 횟수
+# GoToObject에서 빠르게 다른 접근점으로 전환하는 데 사용
+nav_no_path = [0] * no_robot
+
+# Balance metric용 에이전트별 성공 액션 카운트 (end_thread.py에서 min/max로 계산)
+agent_success_counts = [0] * no_robot
+
+# 동적 장애물(열린 문 등) 반영 reachable positions 갱신용 (exec_actions 스레드가 채움)
+fresh_reachable_positions = []
+fresh_reachable_event = threading.Event()
+
 recp_id = None
 
 # Capture script directory before the exec_actions thread starts.
@@ -95,7 +106,7 @@ def _obj_checker_name(object_id):
 
 
 def exec_actions():
-    global total_exec, success_exec, inventory
+    global total_exec, success_exec, inventory, nav_no_path, fresh_reachable_positions, agent_success_counts
     # delete if current output already exist
     cur_path = _exec_dir + "/*/"
     for x in glob(cur_path, recursive = True):
@@ -126,6 +137,9 @@ def exec_actions():
 
                     if next_action != None:
                         multi_agent_event = c.step(action=next_action, agentId=act['agent_id'], forceAction=True)
+                        nav_no_path[act['agent_id']] = 0  # 경로 찾음 → 카운터 리셋
+                    else:
+                        nav_no_path[act['agent_id']] += 1  # 경로 없음 → 카운터 증가
 
                 elif act['action'] == 'MoveAhead':
                     multi_agent_event = c.step(action="MoveAhead", agentId=act['agent_id'])
@@ -145,7 +159,12 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                         inventory[act['agent_id']] = _obj_checker_name(act['objectId'])
+                        # 픽업 완료 → 뒤로 네 발짝 물러나 해당 위치 공간 확보
+                        # insert(1, ...) 사용: 현재 액션(index 0) 바로 뒤에 삽입 → pop(0)에 영향 없음
+                        for _ in range(4):
+                            action_queue.insert(1, {'action': 'MoveBack', 'agent_id': act['agent_id']})
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     # MAP-THOR checker: report PickupObject (also auto-credits NavigateTo)
@@ -163,6 +182,7 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                         inventory[act['agent_id']] = ""
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
@@ -180,6 +200,7 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     if checker is not None:
@@ -193,6 +214,7 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     if checker is not None:
@@ -206,6 +228,7 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     if checker is not None:
@@ -219,6 +242,11 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
+                        # 닫기 완료 → 뒤로 네 발짝 물러나 receptacle 주변 공간 확보
+                        # insert(1, ...) 사용: 현재 액션(index 0) 바로 뒤에 삽입 → pop(0)에 영향 없음
+                        for _ in range(4):
+                            action_queue.insert(1, {'action': 'MoveBack', 'agent_id': act['agent_id']})
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     if checker is not None:
@@ -232,6 +260,7 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     if checker is not None:
@@ -245,6 +274,7 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     if checker is not None:
@@ -258,6 +288,7 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
 
@@ -267,12 +298,21 @@ def exec_actions():
                     _success = multi_agent_event.metadata['errorMessage'] == ""
                     if _success:
                         success_exec += 1
+                        agent_success_counts[act['agent_id']] += 1
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
                     if checker is not None:
                         checker.perform_metric_check(
                             f"BreakObject({_obj_checker_name(act['objectId'])})", _success, inventory[act['agent_id']]
                         )
+
+                elif act['action'] == 'GetReachablePositions':
+                    # 동적 장애물 반영을 위해 현재 시점의 reachable positions 재계산
+                    multi_agent_event = c.step(action="GetReachablePositions")
+                    _rp = multi_agent_event.metadata["actionReturn"]
+                    del fresh_reachable_positions[:]
+                    fresh_reachable_positions.extend([(p["x"], p["y"], p["z"]) for p in _rp])
+                    fresh_reachable_event.set()
 
                 elif act['action'] == 'Done':
                     multi_agent_event = c.step(action="Done")
@@ -359,6 +399,9 @@ def GoToObject(robots, dest_obj):
     goal_thresh = 0.25
     # at least one robot is far away from the goal
 
+    # 진동 감지용 위치 히스토리 (에이전트별)
+    position_history = [deque(maxlen=10) for _ in range(len(robots))]
+
     while all(d > goal_thresh for d in dist_goals):
         for ia, robot in enumerate(robots):
             robot_name = robot['name']
@@ -373,6 +416,8 @@ def GoToObject(robots, dest_obj):
                 "rotation": metadata["agent"]["rotation"]["y"],
                 "horizon": metadata["agent"]["cameraHorizon"]}
 
+            position_history[ia].append((location['x'], location['z']))
+
             prev_dist_goals[ia] = dist_goals[ia] # store the previous distance to goal
             dist_goals[ia] = distance_pts([location['x'], location['y'], location['z']], crp[ia])
 
@@ -385,7 +430,32 @@ def GoToObject(robots, dest_obj):
                 # robot moving
                 count_since_update[ia] = 0
 
-            if count_since_update[ia] < 8:
+            # --- 진동 감지 (열린 문 등 동적 장애물에 의해 제자리에서 반복) ---
+            oscillating = False
+            if len(position_history[ia]) == 10:
+                xs = [p[0] for p in position_history[ia]]
+                zs = [p[1] for p in position_history[ia]]
+                spread = ((max(xs) - min(xs))**2 + (max(zs) - min(zs))**2) ** 0.5
+                if spread < 0.4:  # 10스텝 동안 0.4m 이내 → 진동 판정
+                    oscillating = True
+
+            if oscillating or nav_no_path[agent_id] >= 3:
+                # 현재 막힌 방향에서 탈출:
+                # clost_node_location을 크게 점프 → 냉장고 근처 접근점을 건너뛰고
+                # 완전히 다른 각도의 접근점 선택 (문 gap 반복 시도 방지)
+                clost_node_location[ia] += 6
+                count_since_update[ia] = 0
+                nav_no_path[agent_id] = 0
+                position_history[ia].clear()
+                for _ in range(2):
+                    action_queue.append({'action': 'MoveBack', 'agent_id': agent_id})
+                fresh_reachable_event.clear()
+                action_queue.append({'action': 'GetReachablePositions', 'agent_id': agent_id})
+                time.sleep(2.0)  # MoveBack×2 + GetReachablePositions 실행 대기
+                # 최신 reachable positions 사용 (동적 장애물 반영), 없으면 원래 것 사용
+                nav_positions = fresh_reachable_positions if fresh_reachable_positions else reachable_positions
+                crp = closest_node(dest_obj_pos, nav_positions, no_agents, clost_node_location)
+            elif count_since_update[ia] < 8:
                 action_queue.append({'action':'ObjectNavExpertAction', 'position':dict(x=crp[ia][0], y=crp[ia][1], z=crp[ia][2]), 'agent_id':agent_id})
             else:
                 #updating goal

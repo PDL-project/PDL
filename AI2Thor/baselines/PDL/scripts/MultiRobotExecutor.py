@@ -206,6 +206,7 @@ class MultiRobotExecutor:
         # 실행
         self.total_exec = 0 # 총 실행된 액션 수
         self.success_exec = 0 # 성공적으로 수행된 액션 수
+        self.agent_success_counts: List[int] = []  # balance metric용 agent별 성공 액션 수
 
         # 피드백 루프: 서브태스크별 실패 추적 (subtask_id -> True if any action failed)
         self._thread_subtask_id: Dict[int, int] = {}
@@ -265,6 +266,26 @@ class MultiRobotExecutor:
     def _get_current_subtask_id(self) -> Optional[int]:
         """피드백 모드에서 현재 스레드가 실행 중인 서브태스크 ID (액션 큐에 태깅용)."""
         return self._thread_subtask_id.get(threading.get_ident())
+
+    def _record_agent_success(self, agent_id: int):
+        """agent_id의 성공 액션 카운트 +1 (balance metric용)."""
+        if 0 <= agent_id < len(self.agent_success_counts):
+            self.agent_success_counts[agent_id] += 1
+
+    def _compute_balance_metric(self) -> float:
+        """SmartLLM식 balance = min(x_i) / max(x_i), x_i=agent i의 성공 액션 수."""
+        if not self.agent_success_counts:
+            return 0.0
+        mx = max(self.agent_success_counts)
+        if mx == 0:
+            return 0.0
+        return min(self.agent_success_counts) / mx
+
+    def _compute_exec_rate(self) -> float:
+        """Executability(Exec) = successful low-level actions / attempted actions."""
+        if self.total_exec <= 0:
+            return 0.0
+        return float(self.success_exec) / float(self.total_exec)
 
     # -----------------------------
     # Checker helpers
@@ -678,6 +699,7 @@ class MultiRobotExecutor:
                             print(f"[PickupObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'PutObject':
                         self.total_exec += 1
@@ -704,6 +726,7 @@ class MultiRobotExecutor:
                                     self._enqueue_action(new_act, front=True)
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'ToggleObjectOn':
                         self.total_exec += 1
@@ -717,6 +740,7 @@ class MultiRobotExecutor:
                             print(f"[ToggleObjectOn] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'ToggleObjectOff':
                         self.total_exec += 1
@@ -730,6 +754,7 @@ class MultiRobotExecutor:
                             print(f"[ToggleObjectOff] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'OpenObject':
                         self.total_exec += 1
@@ -743,6 +768,7 @@ class MultiRobotExecutor:
                             print(f"[OpenObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'CloseObject':
                         self.total_exec += 1
@@ -756,6 +782,7 @@ class MultiRobotExecutor:
                             print(f"[CloseObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'SliceObject':
                         self.total_exec += 1
@@ -769,6 +796,7 @@ class MultiRobotExecutor:
                             print(f"[SliceObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'ThrowObject':
                         self.total_exec += 1
@@ -782,6 +810,7 @@ class MultiRobotExecutor:
                             print(f"[ThrowObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'BreakObject':
                         self.total_exec += 1
@@ -795,6 +824,7 @@ class MultiRobotExecutor:
                             print(f"[BreakObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
 
                     elif act['action'] == 'Done':
                         multi_agent_event = c.step(action="Done")
@@ -1358,6 +1388,7 @@ class MultiRobotExecutor:
         yield_active_for: Optional[int] = None  # 현재 yield 요청 중인 blocking robot id
         yield_wait_iters = 0  # yield 발행 후 blocker 이동 대기 카운터
         YIELD_WAIT_MAX = 8    # yield 후 최소 대기 iterations (blocker가 이동할 시간)
+        ineffective_yield_counts: dict = {}  # per-blocker 연속 ineffective yield 횟수
 
         # 대상 물체와 가장 가까운 '이동 가능한 지점' 가져오기
         crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
@@ -1461,6 +1492,7 @@ class MultiRobotExecutor:
                 rot_recovery_count = 0     # 실제 이동 성공 시 복구 에스컬레이션 리셋
                 # 실제 이동 성공 → 활성 yield 해소 확인
                 if yield_active_for is not None:
+                    ineffective_yield_counts.pop(yield_active_for, None)
                     yield_active_for = None
                     yield_wait_iters = 0
 
@@ -1472,8 +1504,15 @@ class MultiRobotExecutor:
                     time.sleep(0.1)
                     continue
                 else:
-                    # 대기 끝: yield가 효과 없었음 → 접근점 변경으로 전환
-                    print(f"[Robot{agent_id+1}] Yield to Robot{yield_active_for+1} ineffective, switching approach")
+                    # 대기 끝: yield가 효과 없었음
+                    blocker_id = yield_active_for
+                    ineffective_yield_counts[blocker_id] = ineffective_yield_counts.get(blocker_id, 0) + 1
+                    print(f"[Robot{agent_id+1}] Yield to Robot{blocker_id+1} ineffective ({ineffective_yield_counts[blocker_id]}x), switching approach")
+                    # 3회 연속 ineffective → 강제로 blocker 이동
+                    if ineffective_yield_counts[blocker_id] >= 3:
+                        print(f"[Robot{agent_id+1}] Force unsticking Robot{blocker_id+1}")
+                        self._force_unstick_blocker(blocker_id)
+                        ineffective_yield_counts[blocker_id] = 0
                     yield_active_for = None
                     yield_wait_iters = 0
                     clost_node_location[0] += 1
@@ -2288,6 +2327,7 @@ class MultiRobotExecutor:
         # 액션 실행 스레드 시작
         self._build_object_dict()
         self.inventory = ["nothing"] * agent_count
+        self.agent_success_counts = [0] * agent_count
         self.agent_action_counters = [0] * agent_count
         self.action_queues = [deque() for _ in range(agent_count)]
         self.nav_rotation_only_count = [0] * agent_count
@@ -2456,7 +2496,12 @@ class MultiRobotExecutor:
                     coverage = self.checker.get_coverage()
                     transport_rate = self.checker.get_transport_rate()
                     finished = self.checker.check_success()
-                    print(f"Coverage: {coverage}, Transport Rate: {transport_rate}, Finished: {finished}")
+                    balance = self._compute_balance_metric()
+                    exec_rate = self._compute_exec_rate()
+                    print(
+                        f"Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "
+                        f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
+                    )
                     completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
                     expected = sorted(getattr(self.checker, "subtasks", []))
                     if hasattr(self.checker, 'get_missing_subtasks'):
@@ -2617,7 +2662,12 @@ class MultiRobotExecutor:
                     coverage = self.checker.get_coverage()
                     transport_rate = self.checker.get_transport_rate()
                     finished = self.checker.check_success()
-                    print(f"Coverage: {coverage}, Transport Rate: {transport_rate}, Finished: {finished}")
+                    balance = self._compute_balance_metric()
+                    exec_rate = self._compute_exec_rate()
+                    print(
+                        f"Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "
+                        f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
+                    )
                     completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
                     expected = sorted(getattr(self.checker, "subtasks", []))
                     if hasattr(self.checker, 'get_missing_subtasks'):
