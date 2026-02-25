@@ -1,0 +1,11 @@
+{
+  "total_results": 2,
+  "successful_translations": 2,
+  "success_rate": 100.0,
+  "validation_passed": 2,
+  "validation_failed": 0,
+  "validation_skipped": 0,
+  "validation_success_rate": 100.0,
+  "average_translation_time": 5.075352072715759,
+  "total_translation_time": 10.150704145431519
+}
