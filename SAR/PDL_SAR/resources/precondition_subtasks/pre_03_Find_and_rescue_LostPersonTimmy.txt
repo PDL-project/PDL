@@ -1,0 +1,68 @@
+# Task Description: Find and rescue LostPersonTimmy.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at LostPersonTimmy location
+#2. LostPersonTimmy's location is unknown
+#3. Robot not carrying LostPersonTimmy
+
+# SubTask 1: Find LostPersonTimmy.
+    Skills Required: Explore
+    Related Objects: LostPersonTimmy(type=Person)
+
+Explore(robot1)
+   Preconditions:
+     (not (person-found LostPersonTimmy))
+   Effects:
+     (person-found LostPersonTimmy)
+
+# SubTask 2: Go to LostPersonTimmy's location.
+    Skills Required: GoToObject
+    Related Objects: LostPersonTimmy(type=Person)
+
+GoToObject(robot1, LostPersonTimmy)
+   Preconditions:
+     (person-found LostPersonTimmy)
+   Effects:
+     (at robot1 LostPersonTimmy)
+
+# SubTask 3: Carry LostPersonTimmy.
+    Skills Required: Carry
+    Related Objects: LostPersonTimmy(type=Person)
+
+Carry(robot1, LostPersonTimmy)
+   Preconditions:
+     (at robot1 LostPersonTimmy)
+     (person-found LostPersonTimmy)
+   Effects:
+     (carrying robot1 LostPersonTimmy)
+
+# SubTask 4: Go to DepositFacility.
+    Skills Required: GoToObject
+    Related Objects: DepositFacility(type=Deposit)
+
+GoToObject(robot1, DepositFacility)
+   Preconditions:
+     (carrying robot1 LostPersonTimmy)
+   Effects:
+     (at robot1 DepositFacility)
+
+# SubTask 5: Drop off LostPersonTimmy at DepositFacility.
+    Skills Required: DropOff
+    Related Objects: LostPersonTimmy(type=Person), DepositFacility(type=Deposit)
+
+DropOff(robot1, LostPersonTimmy, DepositFacility)
+   Preconditions:
+     (at robot1 DepositFacility)
+     (carrying robot1 LostPersonTimmy)
+   Effects:
+     (not (carrying robot1 LostPersonTimmy))
+     (person-rescued LostPersonTimmy)
+
+Goal condition:
+(person-rescued LostPersonTimmy)
+
+# Task Find and rescue LostPersonTimmy is done.

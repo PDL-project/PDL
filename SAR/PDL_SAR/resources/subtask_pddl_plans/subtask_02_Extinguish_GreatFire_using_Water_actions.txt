@@ -1,0 +1,4 @@
+gotoobject robot1 reservoiryork (1)
+getsupply robot1 reservoiryork water (1)
+gotoobject robot1 greatfire_region_1 (1)
+usesupply robot1 greatfire_region_1 water (1)

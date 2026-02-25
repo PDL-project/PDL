@@ -1,0 +1,154 @@
+{
+  "subtask_name": "subtask_01_Extinguish_CaldorFire_using_Sand",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "getsupply robot1 reservoirutah sand (1)",
+      "action_type": "getsupply",
+      "robot": "robot1",
+      "objects": [
+        "reservoirutah",
+        "sand"
+      ],
+      "parallel_group": 0
+    },
+    {
+      "id": 1,
+      "action": "gotoobject robot1 caldorfire_region_1 (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "caldorfire_region_1"
+      ],
+      "parallel_group": 1
+    },
+    {
+      "id": 2,
+      "action": "usesupply robot1 caldorfire_region_1 sand (1)",
+      "action_type": "usesupply",
+      "robot": "robot1",
+      "objects": [
+        "caldorfire_region_1",
+        "sand"
+      ],
+      "parallel_group": 2
+    },
+    {
+      "id": 3,
+      "action": "gotoobject robot1 reservoirutah (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "reservoirutah"
+      ],
+      "parallel_group": 3
+    },
+    {
+      "id": 4,
+      "action": "getsupply robot1 reservoirutah sand (1)",
+      "action_type": "getsupply",
+      "robot": "robot1",
+      "objects": [
+        "reservoirutah",
+        "sand"
+      ],
+      "parallel_group": 4
+    },
+    {
+      "id": 5,
+      "action": "gotoobject robot1 caldorfire_region_2 (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "caldorfire_region_2"
+      ],
+      "parallel_group": 5
+    },
+    {
+      "id": 6,
+      "action": "usesupply robot1 caldorfire_region_2 sand (1)",
+      "action_type": "usesupply",
+      "robot": "robot1",
+      "objects": [
+        "caldorfire_region_2",
+        "sand"
+      ],
+      "parallel_group": 6
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 0,
+      "to_id": 1,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 0,
+      "to_id": 2,
+      "dependency_type": "binding"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 3,
+      "to_id": 4,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 4,
+      "to_id": 5,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 5,
+      "to_id": 6,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 4,
+      "to_id": 6,
+      "dependency_type": "binding"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      0
+    ],
+    "1": [
+      1
+    ],
+    "2": [
+      2
+    ],
+    "3": [
+      3
+    ],
+    "4": [
+      4
+    ],
+    "5": [
+      5
+    ],
+    "6": [
+      6
+    ]
+  },
+  "binding_edges": [
+    {
+      "from": 0,
+      "to": 2
+    },
+    {
+      "from": 4,
+      "to": 6
+    }
+  ]
+}

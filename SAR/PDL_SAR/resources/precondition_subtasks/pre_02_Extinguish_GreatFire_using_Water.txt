@@ -1,0 +1,55 @@
+# Task Description: Extinguish GreatFire using Water.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot has not explored yet
+#2. LostPersonTimmy position unknown
+#3. Robot not carrying anyone
+
+# SubTask 2: Extinguish GreatFire using Water.
+    Skills Required: GoToObject, GetSupply, UseSupply
+    Related Objects: ReservoirYork(type=Water), GreatFire_Region_1(fire=GreatFire)
+
+GoToObject(robot1, ReservoirYork)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 ReservoirYork)
+
+GetSupply(robot1, ReservoirYork, Water)
+   Preconditions:
+     (at robot1 ReservoirYork)
+     (has-resource ReservoirYork Water)
+     (is-supply Water)
+   Effects:
+     (has-supply robot1 Water)
+
+GoToObject(robot1, GreatFire_Region_1)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 GreatFire_Region_1)
+
+UseSupply(robot1, GreatFire_Region_1, Water)
+   Preconditions:
+     (at robot1 GreatFire_Region_1)
+     (has-supply robot1 Water)
+     (is-region GreatFire_Region_1)
+     (fire-active GreatFire_Region_1)
+     (exists (?f - object)
+       (and
+         (region-of GreatFire_Region_1 ?f)
+         (supply-for-fire Water ?f)
+       )
+     )
+   Effects:
+     (not (fire-active GreatFire_Region_1))
+     (not (has-supply robot1 Water))
+
+Goal condition:
+(not (fire-active GreatFire_Region_1))
+
+# Task Extinguish GreatFire using Water is done.

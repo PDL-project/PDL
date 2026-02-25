@@ -216,15 +216,18 @@ class SARBaseEnv:
             action_dict["supply_type"]=supply_type # supply
             act_text=f"use {supply_type.lower()} on {fire_name}"
         if action_name=="GetSupply":
-            # NOTE: by convention enforced on procedural generation, the name contains the object type on it (except for agent)
             if "Deposit" in action_inner:
                 deposit_name,supply_type=action_inner.split(", ")
-                action_dict["from_target_id"]=self.get_id(deposit_name) # deposit
-                action_dict["supply_type"]=supply_type # supply
+                action_dict["from_target_id"]=self.get_id(deposit_name)
+                action_dict["supply_type"]=supply_type
                 act_text=f"get {supply_type.lower()} from {deposit_name}"
             elif "Reservoir" in action_inner:
-                action_dict["from_target_id"]=self.get_id(action_inner) # reservoir 
-                act_text=f"get supply from {action_inner}"
+                parts=action_inner.split(", ")
+                reservoir_name=parts[0]
+                supply_type=parts[1] if len(parts)>1 else None
+                action_dict["from_target_id"]=self.get_id(reservoir_name)  # ← 이름만 넘김
+                action_dict["supply_type"]=supply_type
+                act_text=f"get supply from {reservoir_name}"
         # no need to do anything for action dict - for both below
         if action_name=="ClearInventory":
             act_text="clear inventory"

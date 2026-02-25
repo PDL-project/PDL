@@ -1,0 +1,82 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Extinguish_CaldorFire_using_Sand",
+      "objects": [
+        "robot1",
+        "ReservoirUtah",
+        "CaldorFire_Region_1",
+        "CaldorFire_Region_2",
+        "Sand"
+      ],
+      "preconds": [
+        "Robot is not at any reservoir",
+        "Robot is not holding any supply",
+        "CaldorFire regions are active"
+      ],
+      "effects": [
+        "CaldorFire_Region_1 is no longer active",
+        "CaldorFire_Region_2 is no longer active",
+        "Robot is not holding any supply"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Extinguish_GreatFire_using_Water",
+      "objects": [
+        "robot1",
+        "ReservoirYork",
+        "GreatFire_Region_1",
+        "Water"
+      ],
+      "preconds": [
+        "Robot is not inactive.",
+        "Robot is at ReservoirYork.",
+        "ReservoirYork has Water.",
+        "Water is a supply.",
+        "Robot is at GreatFire_Region_1.",
+        "GreatFire_Region_1 is a region.",
+        "GreatFire_Region_1 is on fire.",
+        "Water can extinguish the fire in GreatFire_Region_1."
+      ],
+      "effects": [
+        "Robot is at ReservoirYork.",
+        "Robot has Water.",
+        "Robot is at GreatFire_Region_1.",
+        "GreatFire_Region_1 is no longer on fire.",
+        "Robot no longer has Water."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Find_and_rescue_LostPersonTimmy",
+      "objects": [
+        "robot1",
+        "LostPersonTimmy",
+        "DepositFacility"
+      ],
+      "preconds": [
+        "Robot is not at LostPersonTimmy's location",
+        "LostPersonTimmy's location is unknown",
+        "Robot is not carrying LostPersonTimmy"
+      ],
+      "effects": [
+        "LostPersonTimmy is found",
+        "Robot is at LostPersonTimmy's location",
+        "Robot is carrying LostPersonTimmy",
+        "Robot is at DepositFacility",
+        "LostPersonTimmy is rescued"
+      ]
+    }
+  ],
+  "edges": [],
+  "parallel_groups": {
+    "0": [
+      1,
+      2,
+      3
+    ]
+  }
+}

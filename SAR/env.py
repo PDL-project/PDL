@@ -378,6 +378,24 @@ class SAREnv(SARBaseEnv):
         """
         assert self.initialized, f"Environment not .reset(); can't do .step(.)"
 
+        # --- DEBUG: print all known object names and check action targets ---
+        import re as _re
+        _all_names = list(self.controller.all_names) if hasattr(self.controller, 'all_names') else []
+        # print(f"[DEBUG] controller.all_names = {_all_names}")
+        for _act in actions:
+            _targets = _re.findall(r'\(([^)]+)\)', _act)
+            for _tstr in _targets:
+                for _t in _tstr.split(','):
+                    _t = _t.strip()
+                    _id = self.controller.get_id(_t)
+                    # print(f"[DEBUG] get_id('{_t}') = {_id}")
+                    if _t.lower() in ['sand', 'water']:
+                        print(f"[DEBUG] Resource type detected: {_t}")
+                        continue
+                    _id = self.controller.get_id(_t)
+                    # print(f"[DEBUG] get_id('{_t}') = {_id}")
+        # --- END DEBUG ---
+
         act_successes, act_texts = [], []
 
         # NOTE: here we append the successes from the drop action

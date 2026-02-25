@@ -1,0 +1,8 @@
+(getsupply robot1 reservoirutah sand)
+(gotoobject robot1 caldorfire_region_1)
+(usesupply robot1 caldorfire_region_1 sand)
+(gotoobject robot1 reservoirutah)
+(getsupply robot1 reservoirutah sand)
+(gotoobject robot1 caldorfire_region_2)
+(usesupply robot1 caldorfire_region_2 sand)
+; cost = 7 (unit cost)

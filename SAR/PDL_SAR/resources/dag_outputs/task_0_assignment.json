@@ -1,0 +1,26 @@
+{
+  "task_idx": 0,
+  "agent_count": 3,
+  "assignment": {
+    "1": 1,
+    "2": 3,
+    "3": 2
+  },
+  "subtasks": [
+    {
+      "id": 1,
+      "title": "Extinguish CaldorFire using Sand.",
+      "robot": 1
+    },
+    {
+      "id": 2,
+      "title": "Extinguish GreatFire using Water.",
+      "robot": 3
+    },
+    {
+      "id": 3,
+      "title": "Find and rescue LostPersonTimmy.",
+      "robot": 2
+    }
+  ]
+}

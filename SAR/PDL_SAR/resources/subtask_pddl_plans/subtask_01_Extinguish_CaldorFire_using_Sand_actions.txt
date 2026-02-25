@@ -1,0 +1,7 @@
+getsupply robot1 reservoirutah sand (1)
+gotoobject robot1 caldorfire_region_1 (1)
+usesupply robot1 caldorfire_region_1 sand (1)
+gotoobject robot1 reservoirutah (1)
+getsupply robot1 reservoirutah sand (1)
+gotoobject robot1 caldorfire_region_2 (1)
+usesupply robot1 caldorfire_region_2 sand (1)

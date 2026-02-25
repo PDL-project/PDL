@@ -1381,10 +1381,10 @@ class TaskManager:
                 dag_generator.visualize_dag(dag, img_path)
 
                 # 병렬 그룹 출력
-                print(f"[DAG] Parallel groups for {base_name}:")
-                for group_idx, node_ids in dag.parallel_groups.items():
-                    actions_in_group = [dag.nodes[nid].action for nid in node_ids if nid < len(dag.nodes)]
-                    print(f"  Step {group_idx}: {actions_in_group}")
+                # print(f"[DAG] Parallel groups for {base_name}:")
+                # for group_idx, node_ids in dag.parallel_groups.items():
+                    # actions_in_group = [dag.nodes[nid].action for nid in node_ids if nid < len(dag.nodes)]
+                    # print(f"  Step {group_idx}: {actions_in_group}")
             # -----------------------------
             # Subtask-level DAG 생성
             # -----------------------------
@@ -1445,8 +1445,8 @@ class TaskManager:
             subtask_png = os.path.join(dag_output_dir, f"{task_name}_SUBTASK_DAG.png")
             dag_generator.visualize_subtask_dag(subtask_dag, subtask_png)
 
-            print(f"[SubtaskDAG] Saved: {subtask_json}")
-            print(f"[SubtaskDAG] Saved: {subtask_png}")
+            # print(f"[SubtaskDAG] Saved: {subtask_json}")
+            # print(f"[SubtaskDAG] Saved: {subtask_png}")
 
             print(f"[DAG] Generated {len(self.plan_dags)} DAGs")
 
