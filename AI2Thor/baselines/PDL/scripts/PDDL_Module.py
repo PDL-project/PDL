@@ -138,7 +138,7 @@ class PDDLUtils:
                             controller.last_event = scene_initializer.SceneInitializer().preinit(
                                 controller.last_event, controller
                             )
-                            print(f"[get_ai2_thor_objects] preinit 실행 완료: {task_folder}/{scene_name}")
+                            #print(f"[get_ai2_thor_objects] preinit 실행 완료: {task_folder}/{scene_name}")
                     except Exception as e:
                         print(f"[get_ai2_thor_objects] preinit 실행 실패 (무시하고 계속): {e}")
 
@@ -387,7 +387,7 @@ class LLMHandler:
                 )
 
             openai.api_key = api_key
-            print("Successfully loaded API key from", used_path)
+            #print("Successfully loaded API key from", used_path)
         except Exception as e:
             raise LLMError(f"Error reading API key file: {str(e)}")
     
@@ -675,7 +675,7 @@ class TaskManager:
         """
         try:
             # 몇개의 task를 처리할건지 확인하는 부분
-            print(f"\n[DIAGNOSTIC] Initial Task Count: {len(test_tasks)}")
+            #print(f"\n[DIAGNOSTIC] Initial Task Count: {len(test_tasks)}")
             
             # objects_ai 정보 저장하기(다른 함수에서 쓰기 위해서)
             self.objects_ai = objects_ai
@@ -820,7 +820,7 @@ class TaskManager:
                 print(f"✓ Assignment saved to: {assignment_path}")
 
                 # 6. 멀티로봇 실행 코드 생성
-                print("\n[Step 6] Generating multi-robot execution code...")
+                #print("\n[Step 6] Generating multi-robot execution code...")
                 executor = MultiRobotExecutor(self.base_path)
                 execution_code = executor.run(
                     task_idx=task_idx,
@@ -832,7 +832,7 @@ class TaskManager:
 
                 # 7. 피드백 루프: 실행 후 실패 시 Subtask Manager LLM / Central LLM으로 재계획 후 재실행
                 if run_with_feedback and floor_plan is not None:
-                    print("\n[Step 7] Running execution with feedback loop...")
+                    print("\n✓ Running execution with feedback loop...")
                     task_name_fb = "task"
                     state_store = SharedTaskStateStore(self.base_path, task_name_fb)
                     replan_retry_per_subtask = {}  # subtask_id -> retry count

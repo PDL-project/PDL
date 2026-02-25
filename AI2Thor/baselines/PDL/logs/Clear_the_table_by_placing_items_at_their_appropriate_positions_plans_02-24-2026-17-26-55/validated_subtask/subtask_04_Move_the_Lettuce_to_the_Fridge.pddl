@@ -1,9 +1,9 @@
-(define (problem move-tomato-to-fridge)
+(define (problem move-lettuce-to-fridge)
   (:domain allactionrobot)
 
   (:objects
     robot1 - robot
-    tomato - object
+    lettuce - object
     fridge - object
     diningtable - object
     floor - object
@@ -13,18 +13,18 @@
     (= (total-cost) 0)
     (not (inaction robot1))
     (at robot1 diningtable)
-    (at-location tomato diningtable)
+    (at-location lettuce diningtable)
     (at-location fridge floor)
 
     (is-fridge fridge)
     (not (fridge-open fridge))
-    (not (holding robot1 tomato))
+    (not (holding robot1 lettuce))
     (object-close robot1 fridge)
   )
 
   (:goal (and
-    (at-location tomato fridge)
-    (not (holding robot1 tomato))
+    (at-location lettuce fridge)
+    (not (holding robot1 lettuce))
     (object-close robot1 fridge)
   ))
 

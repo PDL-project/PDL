@@ -1,45 +1,45 @@
 {
-  "subtask_name": "subtask_06_Move_the_Toaster_to_the_CounterTop",
+  "subtask_name": "subtask_03_Move_the_Mug_to_the_CoffeeMachine",
   "nodes": [
     {
       "id": 0,
-      "action": "gotoobject robot1 toaster (1)",
+      "action": "gotoobject robot1 mug (1)",
       "action_type": "gotoobject",
       "robot": "robot1",
       "objects": [
-        "toaster"
+        "mug"
       ],
       "parallel_group": 0
     },
     {
       "id": 1,
-      "action": "pickupobject robot1 toaster diningtable (1)",
+      "action": "pickupobject robot1 mug diningtable (1)",
       "action_type": "pickupobject",
       "robot": "robot1",
       "objects": [
-        "toaster",
+        "mug",
         "diningtable"
       ],
       "parallel_group": 1
     },
     {
       "id": 2,
-      "action": "gotoobject robot1 countertop (1)",
+      "action": "gotoobject robot1 coffeemachine (1)",
       "action_type": "gotoobject",
       "robot": "robot1",
       "objects": [
-        "countertop"
+        "coffeemachine"
       ],
       "parallel_group": 2
     },
     {
       "id": 3,
-      "action": "drophandobject robot1 toaster countertop (1)",
+      "action": "drophandobject robot1 mug coffeemachine (1)",
       "action_type": "drophandobject",
       "robot": "robot1",
       "objects": [
-        "toaster",
-        "countertop"
+        "mug",
+        "coffeemachine"
       ],
       "parallel_group": 3
     }
@@ -53,7 +53,7 @@
     {
       "from_id": 1,
       "to_id": 2,
-      "dependency_type": "binding"
+      "dependency_type": "causal"
     },
     {
       "from_id": 2,
@@ -81,10 +81,6 @@
     ]
   },
   "binding_edges": [
-    {
-      "from": 1,
-      "to": 2
-    },
     {
       "from": 1,
       "to": 3

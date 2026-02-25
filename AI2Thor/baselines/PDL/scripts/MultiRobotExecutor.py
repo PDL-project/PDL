@@ -819,8 +819,8 @@ class MultiRobotExecutor:
                         self._subtask_failed[sid] = True
                         self._subtask_last_error[sid] = str(e)
 
-                if img_counter % 50 == 0:
-                    print(f"[ExecActions] processed={img_counter}, queue={self._queue_total_len()}")
+                #if img_counter % 50 == 0:
+                    #print(f"[ExecActions] processed={img_counter}, queue={self._queue_total_len()}")
 
                 # 화면 뷰
                 if multi_agent_event is not None:
@@ -1320,12 +1320,10 @@ class MultiRobotExecutor:
             if self.action_queues and agent_id < len(self.action_queues):
                 cleared = len(self.action_queues[agent_id])
                 self.action_queues[agent_id].clear()
-                if cleared > 0:
-                    print(f"[Robot{agent_id+1}] Cleared {cleared} queued actions")
 
     def GoToObject(self, agent_id: int, dest_obj: str) -> bool:
         """로봇을 목적지까지 이동시켜주는 함수, ObjectNavExpertAction을 활용해 장애물을 피해가며 목적지 도달 후 물체를 바라보도록 정렬시킴 """
-        print(f"[Robot{agent_id+1}] Going to {dest_obj}")
+        #print(f"[Robot{agent_id+1}] Going to {dest_obj}")
 
         # 대상 물체 찾기 및 위치 파악
         dest_obj_id, dest_obj_center = self._find_object_with_center(dest_obj, agent_id=agent_id)
@@ -1333,7 +1331,7 @@ class MultiRobotExecutor:
             print(f"[Robot{agent_id+1}] Cannot find {dest_obj}")
             return False
 
-        print(f"[Robot{agent_id+1}] Target: {dest_obj_id} at {dest_obj_center}")
+        #print(f"[Robot{agent_id+1}] Target: {dest_obj_id} at {dest_obj_center}")
 
         dest_obj_pos = [dest_obj_center['x'], dest_obj_center['y'], dest_obj_center['z']]
 
@@ -1387,8 +1385,8 @@ class MultiRobotExecutor:
             dist_del = abs(dist_goal - prev_dist_goal)
 
             # 진행 상황 로그 (10회마다)
-            if iteration % 10 == 0:
-                print(f"[Robot{agent_id+1}] Nav {iteration}/{max_iterations}: dist={dist_goal:.2f}, stall={count_since_update}, osc={oscillation_count}, queue={self._queue_total_len()}")
+            #if iteration % 10 == 0:
+                #print(f"[Robot{agent_id+1}] Nav {iteration}/{max_iterations}: dist={dist_goal:.2f}, stall={count_since_update}, osc={oscillation_count}, queue={self._queue_total_len()}")
 
             # --- Oscillation (앞뒤 반복) 감지 ---
             cur_xz = (location['x'], location['z'])
@@ -1529,7 +1527,7 @@ class MultiRobotExecutor:
                         target_object=dest_obj
                     )
                     if issued:
-                        print(f"[Robot{agent_id+1}] 요청: Robot{blocking+1} 길 비켜줘 ({dest_obj})")
+                        #print(f"[Robot{agent_id+1}] 요청: Robot{blocking+1} 길 비켜줘 ({dest_obj})")
                         yield_active_for = blocking
                         yield_wait_iters = 0
                     count_since_update = 0
@@ -1542,11 +1540,11 @@ class MultiRobotExecutor:
                 max_positions = max(4 * 4, len(self.reachable_positions) // 5)  # 사분면4 × 순위4 = 최소 16
                 if clost_node_location[0] >= max_positions:
                     if collision_retry_count >= max_collision_retries:
-                        print(f"[Robot{agent_id+1}] Exhausted reachable positions, stopping navigation")
+                        #print(f"[Robot{agent_id+1}] Exhausted reachable positions, stopping navigation")
                         break
                     clost_node_location[0] = 0
                 crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
-                print(f"[Robot{agent_id+1}] Switching approach point (skip +{skip_amount})")
+                #print(f"[Robot{agent_id+1}] Switching approach point (skip +{skip_amount})")
                 count_since_update = 0
                 time.sleep(0.1)
                 continue
@@ -1682,11 +1680,11 @@ class MultiRobotExecutor:
             print(f"[Robot{agent_id+1}] Alignment error: {e}")
 
         if dist_goal > goal_thresh:
-            print(f"[Robot{agent_id+1}] FAIL to reach {dest_obj}, aborting")
+            #print(f"[Robot{agent_id+1}] FAIL to reach {dest_obj}, aborting")
             self._clear_agent_queue(agent_id)
             return False
 
-        print(f"[Robot{agent_id+1}] Reached {dest_obj}")
+        #print(f"[Robot{agent_id+1}] Reached {dest_obj}")
         # checker: NavigateTo 크레딧
         obj_id_nav = self._find_object_id(dest_obj)
         readable = self._convert_object_id_to_readable(obj_id_nav) if obj_id_nav else dest_obj
@@ -1696,14 +1694,14 @@ class MultiRobotExecutor:
 
     def PickupObject(self, agent_id: int, obj_pattern: str):
         """Pick up object."""
-        print(f"[Robot{agent_id+1}] Picking up {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Picking up {obj_pattern}")
 
         obj_id, _ = self._find_object_with_center(obj_pattern, agent_id=agent_id)
         if not obj_id:
             print(f"[Robot{agent_id+1}] Cannot find {obj_pattern}")
             return
 
-        print(f"[Robot{agent_id+1}] Picking up {obj_id}")
+        #print(f"[Robot{agent_id+1}] Picking up {obj_id}")
         success = self._enqueue_and_wait({
             'action': 'PickupObject',
             'objectId': obj_id,
@@ -1715,7 +1713,7 @@ class MultiRobotExecutor:
 
     def PutObject(self, agent_id: int, obj_pattern: str, recp_pattern: str):
         """Put held object on/in receptacle."""
-        print(f"[Robot{agent_id+1}] Putting {obj_pattern} on/in {recp_pattern}")
+        #print(f"[Robot{agent_id+1}] Putting {obj_pattern} on/in {recp_pattern}")
 
         recp_id = self._get_cached_receptacle(agent_id, recp_pattern)
         if not recp_id:
@@ -1725,7 +1723,7 @@ class MultiRobotExecutor:
             print(f"[Robot{agent_id+1}] Cannot find receptacle {recp_pattern}")
             return
 
-        print(f"[Robot{agent_id+1}] Putting on {recp_id}")
+        #print(f"[Robot{agent_id+1}] Putting on {recp_id}")
         # checker: put 전 inventory 저장 (put 후엔 비어있으므로)
         self._update_inventory(agent_id)
         inv_before_put = self.inventory[agent_id]
@@ -1743,7 +1741,7 @@ class MultiRobotExecutor:
 
     def OpenObject(self, agent_id: int, obj_pattern: str):
         """Open object."""
-        print(f"[Robot{agent_id+1}] Opening {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Opening {obj_pattern}")
 
         obj_id = self._get_cached_receptacle(agent_id, obj_pattern)
         if not obj_id:
@@ -1775,7 +1773,7 @@ class MultiRobotExecutor:
 
     def CloseObject(self, agent_id: int, obj_pattern: str):
         """Close object."""
-        print(f"[Robot{agent_id+1}] Closing {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Closing {obj_pattern}")
 
         obj_id = self._get_cached_receptacle(agent_id, obj_pattern)
         if not obj_id:
@@ -1799,7 +1797,7 @@ class MultiRobotExecutor:
 
     def SwitchOn(self, agent_id: int, obj_pattern: str):
         """Turn on object."""
-        print(f"[Robot{agent_id+1}] Switching on {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Switching on {obj_pattern}")
 
         obj_id = self._find_object_id(obj_pattern)
         if not obj_id:
@@ -1819,7 +1817,7 @@ class MultiRobotExecutor:
 
     def SwitchOff(self, agent_id: int, obj_pattern: str):
         """Turn off object."""
-        print(f"[Robot{agent_id+1}] Switching off {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Switching off {obj_pattern}")
 
         obj_id = self._find_object_id(obj_pattern)
         if not obj_id:
@@ -1839,7 +1837,7 @@ class MultiRobotExecutor:
 
     def SliceObject(self, agent_id: int, obj_pattern: str):
         """Slice object."""
-        print(f"[Robot{agent_id+1}] Slicing {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Slicing {obj_pattern}")
 
         obj_id = self._find_object_id(obj_pattern)
         if not obj_id:
@@ -1859,7 +1857,7 @@ class MultiRobotExecutor:
 
     def BreakObject(self, agent_id: int, obj_pattern: str):
         """Break object."""
-        print(f"[Robot{agent_id+1}] Breaking {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Breaking {obj_pattern}")
 
         obj_id = self._find_object_id(obj_pattern)
         if not obj_id:
@@ -1879,7 +1877,7 @@ class MultiRobotExecutor:
 
     def ThrowObject(self, agent_id: int, obj_pattern: str):
         """Throw held object."""
-        print(f"[Robot{agent_id+1}] Throwing {obj_pattern}")
+        #print(f"[Robot{agent_id+1}] Throwing {obj_pattern}")
 
         obj_id = self._find_object_id(obj_pattern)
         success = self._enqueue_and_wait({
@@ -1958,7 +1956,7 @@ class MultiRobotExecutor:
             if len(objs) >= 2:
                 # target이 있으면 GoTo(target) + PutObject로 변환 (던지지 않고 놓기)
                 target = objs[1]
-                print(f"[Robot{agent_id+1}] throwobject → GoTo({target}) + PutObject 변환")
+                #print(f"[Robot{agent_id+1}] throwobject → GoTo({target}) + PutObject 변환")
                 if not self.GoToObject(agent_id, target):
                     return
                 self.PutObject(agent_id, objs[0], target)
@@ -1970,11 +1968,11 @@ class MultiRobotExecutor:
             if len(objs) >= 2:
                 # target(receptacle)이 있으면 PutObject 사용 (놓기)
                 target = objs[1]
-                print(f"[Robot{agent_id+1}] drophandobject → PutObject({objs[0]} on {target})")
+                #print(f"[Robot{agent_id+1}] drophandobject → PutObject({objs[0]} on {target})")
                 self.PutObject(agent_id, objs[0], target)
             elif len(objs) >= 1:
                 # target 없으면 그냥 drop
-                print(f"[Robot{agent_id+1}] drophandobject → PutObject({objs[0]})")
+                #print(f"[Robot{agent_id+1}] drophandobject → PutObject({objs[0]})")
                 self.PutObject(agent_id, objs[0], objs[0])
             else:
                 # 아무 정보도 없으면 AI2Thor DropHandObject 사용
@@ -2140,7 +2138,7 @@ class MultiRobotExecutor:
             object_positions[name] = (p.get("x", 0.0), p.get("y", 0.0), p.get("z", 0.0))
 
         controller.stop()
-        print(f"[spawn_and_get_positions] Collected {agent_count} robot positions, {len(object_positions)} object positions")
+        #print(f"[spawn_and_get_positions] Collected {agent_count} robot positions, {len(object_positions)} object positions")
         return robot_positions, object_positions
 
     def start_ai2thor(self, floor_plan: int, agent_count: int,
