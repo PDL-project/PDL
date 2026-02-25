@@ -548,12 +548,13 @@ class SARExecutor:
             not r.success for r in self._subtask_results.values()
         ):
             return 0.0
-        if not self.agent_success_counts:
+        active = [c for c in self.agent_success_counts if c > 0]
+        if not active:
             return 0.0
-        mx = max(self.agent_success_counts)
+        mx = max(active)
         if mx == 0:
             return 0.0
-        return min(self.agent_success_counts) / mx
+        return min(active) / mx
 
     def _compute_exec_rate(self) -> float:
         """Exec Rate = successful low-level actions / attempted actions."""
