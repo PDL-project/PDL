@@ -242,6 +242,9 @@ class MultiRobotExecutor:
         # Action 완료 여부 동기화
         self.action_cv = threading.Condition() # 특정 로봇의 Action 완료를 기다리기 위한 Condition Variable
         self.agent_action_counters: List[int] = [] # 각 로봇이 몇 개의 액션을 수행했는지 기록
+        # _enqueue_and_wait가 "내가 넣은 액션" 완료를 정확히 기다리기 위한 토큰 상태
+        self._next_wait_token: int = 1
+        self._wait_token_result: Dict[int, bool] = {}
 
         # Receptacle cache (로봇ID, 객체패턴) → 실제 objectId 매핑
         self.receptacle_cache: Dict[Tuple[int, str], str] = {}
@@ -391,12 +394,12 @@ class MultiRobotExecutor:
         all_oids = [obj["objectId"] for obj in self.controller.last_event.metadata["objects"]]
         if hasattr(self.checker, "all_objects"):
             self.checker.all_objects(obj_ids=all_oids, scene=scene_name)
-        print("_" * 50)
-        print("Subtasks to complete:")
-        try:
-            print("\n".join(self.checker.subtasks))
-        except Exception:
-            pass
+        #print("_" * 50)
+        #print("Subtasks to complete:")
+        #try:
+         #   print("\n".join(self.checker.subtasks))
+        #except Exception:
+        #    pass
         # Scene 초기 상태 설정
         if scene_initializer is not None:
             self.controller.last_event = scene_initializer.SceneInitializer().preinit(
@@ -477,15 +480,18 @@ class MultiRobotExecutor:
             if not self.agent_action_counters:
                 self._enqueue_action(action)
                 return True
-            start = self.agent_action_counters[agent_id]
+            token = self._next_wait_token
+            self._next_wait_token += 1
+            action = dict(action)
+            action["wait_token"] = token
             self._enqueue_action(action)
             end_time = time.time() + timeout
-            while self.agent_action_counters[agent_id] == start:
+            while token not in self._wait_token_result:
                 remaining = end_time - time.time()
                 if remaining <= 0:
                     return False
                 self.action_cv.wait(timeout=remaining)
-            return True
+            return bool(self._wait_token_result.pop(token, False))
 
     # -----------------------------
     # 데이터 로드
@@ -511,9 +517,9 @@ class MultiRobotExecutor:
         else:
             self.saved_spawn_positions = None
 
-        print(f"[Executor] Loaded assignment: {self.assignment}")
-        if self.configured_agent_count:
-            print(f"[Executor] Configured agent count: {self.configured_agent_count}")
+        #print(f"[Executor] Loaded assignment: {self.assignment}")
+        #if self.configured_agent_count:
+            #print(f"[Executor] Configured agent count: {self.configured_agent_count}")
         return self.assignment
 
     def load_subtask_dag(self, task_name: str = "task") -> Dict[int, List[int]]:
@@ -544,7 +550,7 @@ class MultiRobotExecutor:
             if sids:
                 cleaned[gid] = sids
         self.parallel_groups = cleaned
-        print(f"[Executor] Loaded parallel groups: {self.parallel_groups}")
+        #print(f"[Executor] Loaded parallel groups: {self.parallel_groups}")
         return self.parallel_groups
 
     def load_plan_actions(self) -> Dict[int, List[str]]:
@@ -583,7 +589,7 @@ class MultiRobotExecutor:
                 parallel_group=pg,
             )
 
-        print(f"[Executor] Loaded {len(plan_actions)} subtask plans")
+        #print(f"[Executor] Loaded {len(plan_actions)} subtask plans")
         return plan_actions
 
     # -----------------------------
@@ -599,6 +605,7 @@ class MultiRobotExecutor:
             if act is not None:
                 try:
                     multi_agent_event = None
+                    action_success = True
 
                     if act['action'] == 'ObjectNavExpertAction':
                         multi_agent_event = c.step(dict(
@@ -622,7 +629,7 @@ class MultiRobotExecutor:
                         if img_counter < 5:
                             success = multi_agent_event.events[aid].metadata.get('lastActionSuccess', '?')
                             err = multi_agent_event.events[aid].metadata.get('errorMessage', '')
-                            print(f"[NAV DEBUG] agent={aid}, actionReturn={next_action}, success={success}, err={err}")
+                            #print(f"[NAV DEBUG] agent={aid}, actionReturn={next_action}, success={success}, err={err}")
 
                         # (A) actionReturn이 문자열이면 그대로 action으로 실행
                         if isinstance(next_action, str) and next_action:
@@ -702,6 +709,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[PickupObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -717,6 +725,7 @@ class MultiRobotExecutor:
                         )
                         err_msg = multi_agent_event.metadata.get('errorMessage', "")
                         if err_msg != "":
+                            action_success = False
                             print(f"[PutObject] Error: {err_msg}")
                             # Auto-recovery: if receptacle closed, open then retry once
                             if "CLOSED" in err_msg.upper():
@@ -743,6 +752,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[ToggleObjectOn] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -757,6 +767,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[ToggleObjectOff] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -771,6 +782,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[OpenObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -785,6 +797,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[CloseObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -799,6 +812,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[SliceObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -813,6 +827,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[ThrowObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -827,6 +842,7 @@ class MultiRobotExecutor:
                             forceAction=True
                         )
                         if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
                             print(f"[BreakObject] Error: {multi_agent_event.metadata['errorMessage']}")
                         else:
                             self.success_exec += 1
@@ -843,12 +859,14 @@ class MultiRobotExecutor:
                     if (multi_agent_event is not None
                             and multi_agent_event.metadata.get("errorMessage")
                             and act.get("action") not in _NAV_ACTIONS):
+                        action_success = False
                         sid = act.get("subtask_id")
                         if sid is not None:
                             self._subtask_failed[sid] = True
                             self._subtask_last_error[sid] = multi_agent_event.metadata.get("errorMessage", "")
 
                 except Exception as e:
+                    action_success = False
                     print(f"[ExecActions] Exception: {e}")
                     sid = act.get("subtask_id")
                     if sid is not None:
@@ -882,6 +900,9 @@ class MultiRobotExecutor:
                         with self.action_cv:
                             if agent_id < len(self.agent_action_counters):
                                 self.agent_action_counters[agent_id] += 1
+                            token = act.get("wait_token")
+                            if token is not None:
+                                self._wait_token_result[token] = bool(action_success)
                             self.action_cv.notify_all()
                 except Exception:
                     pass
@@ -1218,7 +1239,7 @@ class MultiRobotExecutor:
             {"action": "MoveBack", "agent_id": blocking_id},
         ])
         self._last_forced_unstick[blocking_id] = now
-        print(f"[Yield] Force unstick Robot{blocking_id+1}: MoveBack+Rotate")
+        #print(f"[Yield] Force unstick Robot{blocking_id+1}: MoveBack+Rotate")
         return True
 
     def _monitor_path_clear_requests(self):
@@ -1461,7 +1482,8 @@ class MultiRobotExecutor:
 
             # Oscillation 감지 시 강제 경로 전환
             if oscillation_count >= self.nav_oscillation_threshold:
-                print(f"[Robot{agent_id+1}] Oscillation detected! Switching to alternative path")
+                # Navigation 복구 로그 비활성화
+                # print(f"[Robot{agent_id+1}] Oscillation detected! Switching to alternative path")
                 # 뒤로 한 칸 이동 후 다른 접근 지점으로 전환
                 self._enqueue_and_wait({
                     'action': 'MoveBack',
@@ -1513,10 +1535,12 @@ class MultiRobotExecutor:
                     # 대기 끝: yield가 효과 없었음
                     blocker_id = yield_active_for
                     ineffective_yield_counts[blocker_id] = ineffective_yield_counts.get(blocker_id, 0) + 1
-                    print(f"[Robot{agent_id+1}] Yield to Robot{blocker_id+1} ineffective ({ineffective_yield_counts[blocker_id]}x), switching approach")
+                    # Yield/회피 관련 로그 비활성화
+                    # print(f"[Robot{agent_id+1}] Yield to Robot{blocker_id+1} ineffective ({ineffective_yield_counts[blocker_id]}x), switching approach")
                     # 3회 연속 ineffective → 강제로 blocker 이동
                     if ineffective_yield_counts[blocker_id] >= 3:
-                        print(f"[Robot{agent_id+1}] Force unsticking Robot{blocker_id+1}")
+                        # Yield/회피 관련 로그 비활성화
+                        # print(f"[Robot{agent_id+1}] Force unsticking Robot{blocker_id+1}")
                         self._force_unstick_blocker(blocker_id)
                         ineffective_yield_counts[blocker_id] = 0
                     yield_active_for = None
@@ -1612,7 +1636,8 @@ class MultiRobotExecutor:
                 # 인덱스 범위 초과 확인 (안전 장치)
                 max_positions = max(4 * 4, len(self.reachable_positions) // 5)  # 사분면4 × 순위4 = 최소 16
                 if clost_node_location[0] >= max_positions:
-                    print(f"[Robot{agent_id+1}] Exhausted reachable positions, stopping navigation")
+                    # Navigation 복구 로그 비활성화
+                    # print(f"[Robot{agent_id+1}] Exhausted reachable positions, stopping navigation")
                     break
 
                 crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
@@ -1627,7 +1652,8 @@ class MultiRobotExecutor:
                 if agent_id < len(self.nav_rotation_only_count):
                     self.nav_rotation_only_count[agent_id] = 0
                     prev_rot_only = 0
-                print(f"[Robot{agent_id+1}] Navigation timeout: recovery {recovery_attempts}/{max_recoveries}")
+                # Navigation 복구 로그 비활성화
+                # print(f"[Robot{agent_id+1}] Navigation timeout: recovery {recovery_attempts}/{max_recoveries}")
 
                 # 1) wait briefly to let others move
                 time.sleep(0.6)
@@ -1658,7 +1684,9 @@ class MultiRobotExecutor:
                         break
                     # recovery 중에도 진행 상황 로그
                     if ri % 5 == 0:
-                        print(f"[Robot{agent_id+1}] Recovery nav {ri}/15: dist={dist_goal:.2f}")
+                        # Navigation 복구 로그 비활성화
+                        # print(f"[Robot{agent_id+1}] Recovery nav {ri}/15: dist={dist_goal:.2f}")
+                        pass
                     # stall 감지: recovery 중에도 진전 없으면 빠르게 포기
                     if abs(dist_goal - prev_recovery_dist) < 0.1:
                         recovery_stall += 1
@@ -1666,7 +1694,8 @@ class MultiRobotExecutor:
                         recovery_stall = 0
                     prev_recovery_dist = dist_goal
                     if recovery_stall >= 5:
-                        print(f"[Robot{agent_id+1}] Recovery stalled, trying next approach")
+                        # Navigation 복구 로그 비활성화
+                        # print(f"[Robot{agent_id+1}] Recovery stalled, trying next approach")
                         break
                     self._enqueue_and_wait({
                         'action': 'ObjectNavExpertAction',
@@ -1675,7 +1704,8 @@ class MultiRobotExecutor:
                     }, agent_id=agent_id, timeout=5.0)
 
             if dist_goal > goal_thresh:
-                print(f"[Robot{agent_id+1}] Navigation timeout, giving up")
+                # Navigation 복구 로그 비활성화
+                # print(f"[Robot{agent_id+1}] Navigation timeout, giving up")
                 self._clear_agent_queue(agent_id)
                 return False
 
@@ -1969,9 +1999,9 @@ class MultiRobotExecutor:
         elif atype == "putobjectinfridge" and len(objs) >= 1:
             if not self.GoToObject(agent_id, "Fridge"):
                 return
-            self.OpenObject(agent_id, "Fridge")
+            #self.OpenObject(agent_id, "Fridge")
             self.PutObject(agent_id, objs[0], "Fridge")
-            self.CloseObject(agent_id, "Fridge")
+            #self.CloseObject(agent_id, "Fridge")
 
         elif atype == "openobject" and len(objs) >= 1:
             self.OpenObject(agent_id, objs[0])
@@ -2084,7 +2114,7 @@ class MultiRobotExecutor:
             p = obj.get("position", {})
             object_positions[name] = (p.get("x", 0.0), p.get("y", 0.0), p.get("z", 0.0))
 
-        print(f"[get_live_positions] Collected {len(robot_positions)} robot positions, {len(object_positions)} object positions (live)")
+        #print(f"[get_live_positions] Collected {len(robot_positions)} robot positions, {len(object_positions)} object positions (live)")
         return robot_positions, object_positions
 
     def get_live_objects_ai(self) -> List[Dict[str, Any]]:
@@ -2121,7 +2151,7 @@ class MultiRobotExecutor:
                 },
             })
 
-        print(f"[get_live_objects_ai] Collected {len(objects_ai)} objects from live scene")
+        #print(f"[get_live_objects_ai] Collected {len(objects_ai)} objects from live scene")
         return objects_ai
 
     @staticmethod
@@ -2504,10 +2534,12 @@ class MultiRobotExecutor:
                     finished = self.checker.check_success()
                     balance = self._compute_balance_metric()
                     exec_rate = self._compute_exec_rate()
+                    print("\n[[ RESULT ]]\n")
                     print(
                         f"Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "
                         f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
                     )
+                    print("\n")
                     completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
                     expected = sorted(getattr(self.checker, "subtasks", []))
                     if hasattr(self.checker, 'get_missing_subtasks'):
@@ -2670,10 +2702,12 @@ class MultiRobotExecutor:
                     finished = self.checker.check_success()
                     balance = self._compute_balance_metric()
                     exec_rate = self._compute_exec_rate()
+                    print("\n[[ RESULT ]]\n")
                     print(
                         f"Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "
                         f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
                     )
+                    print("\n")
                     completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
                     expected = sorted(getattr(self.checker, "subtasks", []))
                     if hasattr(self.checker, 'get_missing_subtasks'):
@@ -2712,7 +2746,7 @@ class MultiRobotExecutor:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             with open(output_path, "w") as f:
                 f.write(code)
-            print(f"[Executor] Saved execution code to: {output_path}")
+            #print(f"[Executor] Saved execution code to: {output_path}")
 
         return code
 

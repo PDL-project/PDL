@@ -37,11 +37,6 @@
 
 # Task Description: Make a sandwich with sliced lettuce, sliced tomato, sliced bread and serve it on a washed plate.
 
-# Initial condition analyze due to previous subtask:
-#1. Robot not at any object location
-#2. Robot not holding egg
-#3. fridge is fridge, and initally closed
-
 # GENERAL TASK DECOMPOSITION
 # Decompose and parallelize subtasks where ever possible
 # Independent subtasks:

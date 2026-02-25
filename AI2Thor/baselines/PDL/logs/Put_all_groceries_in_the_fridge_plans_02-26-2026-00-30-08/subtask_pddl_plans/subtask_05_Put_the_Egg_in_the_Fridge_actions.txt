@@ -1,0 +1,6 @@
+gotoobject robot1 egg (1)
+pickupobject robot1 egg floor (1)
+gotoobject robot1 fridge (1)
+openfridge robot1 fridge (1)
+putobjectinfridge robot1 egg fridge (1)
+closeobject robot1 fridge (1)

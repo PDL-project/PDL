@@ -343,6 +343,7 @@ class ReplanContext:
         failure_reason: str,
         remaining_pending_ids: List[int],
         completed_actions: Optional[List[str]] = None,
+        completed_actions_by_subtask: Optional[Dict[int, List[str]]] = None,
     ):
         self.local_env = local_env
         self.success_effects = success_effects  # 불변 유지
@@ -350,6 +351,7 @@ class ReplanContext:
         self.failure_reason = failure_reason
         self.remaining_pending_ids = remaining_pending_ids
         self.completed_actions = completed_actions  # 실패 전까지 성공한 액션 목록
+        self.completed_actions_by_subtask = completed_actions_by_subtask or {}  # subtask_id -> completed_actions
 
 
 class PartialReplanner:
@@ -390,6 +392,12 @@ class PartialReplanner:
         err, _ = self.store.get_failure_info(failed_id)
         success_effects = self.store.get_success_effects_immutable()
         completed_actions = self.store.get_completed_actions(failed_id)
+        # 그룹 내 모든 subtask의 completed_actions 수집
+        completed_actions_by_subtask: Dict[int, List[str]] = {}
+        for sid in subtask_ids_in_group:
+            acts = self.store.get_completed_actions(sid)
+            if acts:
+                completed_actions_by_subtask[sid] = acts
         return ReplanContext(
             local_env=local_env,
             success_effects=success_effects,
@@ -397,6 +405,7 @@ class PartialReplanner:
             failure_reason=err or "Unknown error",
             remaining_pending_ids=pending_ids,
             completed_actions=completed_actions,
+            completed_actions_by_subtask=completed_actions_by_subtask,
         )
 
     def replan_group(
@@ -430,14 +439,14 @@ class PartialReplanner:
                     self.last_replanned_ids = sorted(
                         sid for sid in new_plans.keys() if isinstance(sid, int) and sid > 0
                     )
-                    print(f"[ReplanGroup] decomposition_callback succeeded: {list(new_plans.keys())}")
+                    #print(f"[ReplanGroup] decomposition_callback succeeded: {list(new_plans.keys())}")
                     return "replanned"
                 else:
-                    print(f"[ReplanGroup] decomposition_callback: all impossible goals dropped (no new subtasks needed)")
+                    #print(f"[ReplanGroup] decomposition_callback: all impossible goals dropped (no new subtasks needed)")
                     return "dropped"
 
         # 2단계: fallback - 실패한 서브태스크 1개만 재계획
-        print(f"[ReplanGroup] Falling back to single subtask replan for subtask {context.failed_subtask_id}")
+        #print(f"[ReplanGroup] Falling back to single subtask replan for subtask {context.failed_subtask_id}")
         failed_id = context.failed_subtask_id
         actions = current_actions_by_id.get(failed_id, [])
         problem_content = problem_content_by_id.get(failed_id, "")
@@ -587,6 +596,82 @@ def load_subtask_precond_effects(base_path: str, task_name: str = "task") -> Dic
             pass
         out[sid] = effects
     return out
+
+
+def load_subtask_action_effects(base_path: str) -> Dict[int, List[List[str]]]:
+    """pre_XX_*.txt 파일에서 각 action의 effects를 순서대로 파싱.
+    반환: subtask_id -> [action0_effects, action1_effects, ...]
+    각 action_effects는 PDDL effect string 리스트."""
+    precond_dir = os.path.join(base_path, "resources", "precondition_subtasks")
+    if not os.path.exists(precond_dir):
+        return {}
+    out: Dict[int, List[List[str]]] = {}
+    for fname in sorted(os.listdir(precond_dir)):
+        m = re.match(r"pre_(\d+)_.*\.txt$", fname)
+        if not m:
+            continue
+        try:
+            sid = int(m.group(1))
+        except ValueError:
+            continue
+        if sid <= 0:
+            continue
+        fpath = os.path.join(precond_dir, fname)
+        action_effects_list: List[List[str]] = []
+        current_effects: List[str] = []
+        in_effects = False
+        in_action = False
+        try:
+            with open(fpath, "r") as f:
+                for line in f:
+                    raw = line.rstrip('\n')
+                    stripped = raw.strip()
+                    if not stripped:
+                        continue
+                    # action line: 들여쓰기 없음, '('를 포함, '#'으로 시작 안 함, '('로 시작 안 함
+                    is_action_line = (
+                        raw and not raw[0].isspace()
+                        and not stripped.startswith('#')
+                        and '(' in stripped
+                        and not stripped.startswith('(')
+                        and not stripped.startswith('Goal')
+                        and not stripped.startswith('Preconditions')
+                        and not stripped.startswith('Effects')
+                    )
+                    if is_action_line:
+                        if in_action:
+                            action_effects_list.append(current_effects)
+                        current_effects = []
+                        in_effects = False
+                        in_action = True
+                    elif stripped == "Effects:":
+                        in_effects = True
+                    elif stripped.startswith("Preconditions:") or stripped.startswith("Goal"):
+                        in_effects = False
+                    elif in_effects and stripped.startswith("("):
+                        current_effects.append(stripped)
+                    elif in_effects and stripped and not stripped.startswith("("):
+                        in_effects = False
+            if in_action:
+                action_effects_list.append(current_effects)
+        except Exception:
+            pass
+        out[sid] = action_effects_list
+    return out
+
+
+def get_effects_for_completed_actions(
+    subtask_id: int,
+    completed_actions: List[str],
+    action_effects: Dict[int, List[List[str]]],
+) -> List[str]:
+    """completed_actions 개수만큼 앞에서부터 각 action의 effects를 추출 (순서 기반 매핑)."""
+    all_action_effects = action_effects.get(subtask_id, [])
+    n = min(len(completed_actions), len(all_action_effects))
+    result: List[str] = []
+    for i in range(n):
+        result.extend(all_action_effects[i])
+    return result
 
 
 def format_success_effects_for_prompt(

@@ -1,0 +1,197 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Put_the_Apple_in_the_Fridge",
+      "objects": [
+        "apple",
+        "fridge",
+        "robot1"
+      ],
+      "preconds": [
+        "Robot is not holding the apple.",
+        "Fridge is initially closed.",
+        "Apple is on the countertop."
+      ],
+      "effects": [
+        "Apple is inside the fridge.",
+        "Robot is not holding the apple.",
+        "Fridge is closed."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Put_the_Bottle_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "bottle",
+        "fridge",
+        "shelf",
+        "floor",
+        "kitchen"
+      ],
+      "preconds": [
+        "Robot is in the kitchen.",
+        "Bottle is on the shelf.",
+        "Fridge is on the floor and closed.",
+        "Robot is not holding the bottle."
+      ],
+      "effects": [
+        "Bottle is inside the fridge.",
+        "Fridge is closed.",
+        "Robot is not holding the bottle."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Put_the_Bread_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "bread",
+        "fridge",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is in the kitchen.",
+        "Bread is on the countertop.",
+        "Fridge is on the floor.",
+        "Fridge is closed.",
+        "Robot is not holding the bread."
+      ],
+      "effects": [
+        "Bread is in the fridge.",
+        "Robot is not holding the bread.",
+        "Fridge is closed."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Put_the_Lettuce_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "lettuce",
+        "fridge",
+        "kitchen",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is in the kitchen",
+        "Lettuce is on the countertop",
+        "Fridge is on the floor",
+        "Fridge is closed",
+        "Robot is not holding the lettuce"
+      ],
+      "effects": [
+        "Lettuce is in the fridge",
+        "Robot is not holding the lettuce",
+        "Fridge is closed"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Put_the_Egg_in_the_Fridge",
+      "objects": [
+        "robot1",
+        "egg",
+        "fridge",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is at the floor.",
+        "Egg is at the fridge.",
+        "Fridge is closed.",
+        "Robot is not holding the egg."
+      ],
+      "effects": [
+        "Egg is in the fridge.",
+        "Robot is not holding the egg.",
+        "Fridge is closed."
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 1,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 1,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 2,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 2,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 3,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 3,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    },
+    {
+      "from_id": 4,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: fridge"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ],
+    "2": [
+      3
+    ],
+    "3": [
+      4
+    ],
+    "4": [
+      5
+    ]
+  }
+}

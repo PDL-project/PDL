@@ -1,0 +1,60 @@
+{
+  "task_idx": 0,
+  "agent_count": 4,
+  "assignment": {
+    "1": 4,
+    "2": 3,
+    "3": 2,
+    "4": 1,
+    "5": 1
+  },
+  "subtasks": [
+    {
+      "id": 1,
+      "title": "Put the Apple in the Fridge.",
+      "robot": 4
+    },
+    {
+      "id": 2,
+      "title": "Put the Bottle in the Fridge.",
+      "robot": 3
+    },
+    {
+      "id": 3,
+      "title": "Put the Bread in the Fridge.",
+      "robot": 2
+    },
+    {
+      "id": 4,
+      "title": "Put the Lettuce in the Fridge.",
+      "robot": 1
+    },
+    {
+      "id": 5,
+      "title": "Put the Egg in the Fridge.",
+      "robot": 1
+    }
+  ],
+  "robot_spawn_positions": {
+    "1": [
+      -1.0,
+      0.900999128818512,
+      0.25
+    ],
+    "2": [
+      1.5,
+      0.900999128818512,
+      0.25
+    ],
+    "3": [
+      0.25,
+      0.900999128818512,
+      -1.5
+    ],
+    "4": [
+      1.0,
+      0.900999128818512,
+      2.0
+    ]
+  }
+}

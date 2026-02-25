@@ -119,7 +119,7 @@ class DAGGenerator:
         for c in candidates:
             if c.exists() and c.is_file():
                 openai.api_key = c.read_text().strip()
-                print(f"[DAG] Loaded API key from: {c}")
+                #print(f"[DAG] Loaded API key from: {c}")
                 return
 
         raise FileNotFoundError(f"[DAG] api key file not found. Tried: {[str(c) for c in candidates]}")
@@ -296,8 +296,6 @@ class DAGGenerator:
 
             edges.append(DAGEdge(from_id=u, to_id=v, dependency_type=dep_type))
 
-        if dropped:
-            print(f"[DAG] Dropped {dropped} invalid dependencies (out-of-range or malformed)")
 
         # 4. 병렬 그룹(단계) 계산
         parallel_groups = self.compute_parallel_groups(len(nodes), edges)
@@ -315,7 +313,7 @@ class DAGGenerator:
     def save_dag_json(self, dag: PlanDAG, output_path: str) -> None:
         with open(output_path, 'w') as f:
             json.dump(dag.to_dict(), f, indent=2, ensure_ascii=False)
-        print(f"[DAG] Saved JSON to {output_path}")
+        #print(f"[DAG] Saved JSON to {output_path}")
 
     def visualize_dag(self, dag: PlanDAG, output_path: str) -> None:
         """pydot(Graphviz)을 사용하여 DAG를 PNG/PDF 이미지로 시각화"""
@@ -372,7 +370,6 @@ class DAGGenerator:
         else:
             graph.write_png(output_path)
 
-        print(f"[DAG] Saved pretty visualization to {output_path}")
 
     # ==========================================================
     # 2) Subtask-level DAG (서브태스크 간 관계 분석)
@@ -614,7 +611,7 @@ class DAGGenerator:
     def save_subtask_dag_json(self, dag: SubtaskDAG, output_path: str) -> None:
         with open(output_path, "w") as f:
             json.dump(dag.to_dict(), f, indent=2, ensure_ascii=False)
-        print(f"[Subtask] Saved Subtask DAG JSON to {output_path}")
+        #print(f"[Subtask] Saved Subtask DAG JSON to {output_path}")
 
     def visualize_subtask_dag(self, dag: SubtaskDAG, output_path: str) -> None:
         try:
@@ -678,7 +675,7 @@ class DAGGenerator:
         else:
             graph.write_png(output_path)
 
-        print(f"[Subtask] Saved Subtask DAG visualization to {output_path}")
+        #print(f"[Subtask] Saved Subtask DAG visualization to {output_path}")
 
 
 class DAGProcessor:
@@ -715,7 +712,7 @@ class DAGProcessor:
         plan_files = [f for f in os.listdir(self.plans_path) if f.endswith("_actions.txt")]
 
         for idx, plan_file in enumerate(sorted(plan_files)):
-            print(f"\n[DAG] Processing: {plan_file}")
+            #print(f"\n[DAG] Processing: {plan_file}")
 
             plan_path = os.path.join(self.plans_path, plan_file)
             with open(plan_path, 'r') as f:
@@ -799,8 +796,8 @@ def main():
 
     action_dags, subtask_dag = processor.process_all_plans(task_name=args.task_name)
 
-    print(f"\n[DAG] Processed {len(action_dags)} subtasks")
-    print(f"[Subtask] Built subtask DAG with {len(subtask_dag.nodes)} nodes and {len(subtask_dag.edges)} edges")
+    #print(f"\n[DAG] Processed {len(action_dags)} subtasks")
+    #print(f"[Subtask] Built subtask DAG with {len(subtask_dag.nodes)} nodes and {len(subtask_dag.edges)} edges")
 
     for dag in action_dags:
         print(f"\n=== {dag.subtask_name} ===")

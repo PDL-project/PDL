@@ -46,6 +46,8 @@ from auto_config import AutoConfig # config 로딩/세팅 자동화
 from FeedbackLoopModule import (
     load_subtask_dag_edges,
     load_subtask_precond_effects,
+    load_subtask_action_effects,
+    get_effects_for_completed_actions,
     load_subtask_dag_parallel_groups,
     PartialReplanner,
     GroupAgent,
@@ -497,6 +499,14 @@ class TaskManager:
 
         self.objects_ai = None
 
+    def _fb_log_header(self, title: str):
+        print(f"\n{'='*60}")
+        print(f"[Feedback] {title}")
+        print(f"{'='*60}")
+
+    def _fb_log_line(self, message: str):
+        print(f"  - {message}")
+
     def clean_all_resources_directories(self) -> None:
         """
         resources/. 아래 생성된 폴더들의 파일들 전부 지우는 함수
@@ -817,7 +827,7 @@ class TaskManager:
                 assignment_path = os.path.join(self.resources_path, "dag_outputs", f"task_{task_idx}_assignment.json")
                 with open(assignment_path, "w") as f:
                     json.dump(assignment_output, f, indent=2, ensure_ascii=False)
-                print(f"✓ Assignment saved to: {assignment_path}")
+                print(f"✓ Assignment Done")
 
                 # 6. 멀티로봇 실행 코드 생성
                 #print("\n[Step 6] Generating multi-robot execution code...")
@@ -840,12 +850,16 @@ class TaskManager:
                     def _on_subtask_failed(failed_result):
                         """재계획 시도 후 새 플랜 로드 여부 반환."""
                         sid = failed_result.subtask_id
+                        # 이미 drop된 subtask는 재계획 불필요
+                        if sid in executor._dropped_subtasks:
+                            #print(f"[Feedback] Subtask {sid} already dropped, skipping replan")
+                            return False
                         count = replan_retry_per_subtask.get(sid, 0)
                         if count >= max_replan_retries:
-                            print(f"[Feedback] Max replan retries ({max_replan_retries}) for subtask {sid} reached, skipping replan")
+                            #print(f"[Feedback] Max replan retries ({max_replan_retries}) for subtask {sid} reached, skipping replan")
                             return False
 
-                        print(f"[Feedback] Immediate replan triggered by subtask {sid} (retry {count+1}/{max_replan_retries})")
+                        #print(f"[Feedback] Immediate replan triggered by subtask {sid} (retry {count+1}/{max_replan_retries})")
                         replan_retry_per_subtask[sid] = count + 1
 
                         current_results = dict(executor._subtask_results)
@@ -877,13 +891,14 @@ class TaskManager:
                         )
 
                         if replan_result == "no_change":
-                            print("[Feedback] Replan: no_change")
                             # run_feedback_replan 내부에서 dropped 처리가 되었을 수 있음
-                            if sid in executor._dropped_subtasks:
-                                print(f"[Feedback] Subtask {sid} was dropped during replan (physically impossible)")
+                            #if sid in executor._dropped_subtasks:
+                            #    print(f"[Feedback] Subtask {sid} was dropped during replan (physically impossible)")
+                            #else:
+                            #    print("[Feedback] Replan: NO_CHANGE")
                             return False
                         if replan_result == "fully_replanned":
-                            print("[Feedback] Replan: fully_replanned")
+                            #print("[Feedback] Replan: fully_replanned")
                             success = self.reload_executor_with_integrated_dag(
                                 executor=executor,
                                 task_idx=task_idx,
@@ -1057,6 +1072,158 @@ class TaskManager:
             })
 
         return subtasks
+
+    def _parse_redecompose_response(
+        self,
+        redecompose_text: str,
+        tasks_to_replan: List[int],
+    ) -> List[Dict]:
+        """
+        Redecomposition LLM 응답 유연 파싱.
+        LLM 응답 형식이 다양해도 처리:
+          - 표준:   "# Sub Task 3: Move the Mug..."
+          - 번호 없음: "#### SubTask: Move the Mug..."
+          - 번호 불일치: "### SubTask 1: ..." (tasks_to_replan=[5] 인 경우 → ID 재배정)
+          - 액션만: SubTask 헤더 없이 GoToObject(...) 형태의 action 스텝만 있는 경우
+          - drop:  SubTask 헤더도 없고 action 스텝도 없음 (물리적 불가능 결론)
+
+        Returns:
+          - [] (empty): LLM이 drop 결론 → drop 처리
+          - [dict, ...]: 파싱된 서브태스크 목록
+        """
+        text = (redecompose_text or "").strip()
+        if not text:
+            return []
+
+        # Step 1. 표준 포맷 파싱 ("# Sub Task N: ...")
+        standard = self._decomposed_plan_to_subtasks(text)
+        if standard:
+            return standard
+
+        # Step 2. 유연한 SubTask 헤더 파싱을 has_action_steps 체크보다 먼저 수행
+        # 인식 패턴: "### SubTask 1: ...", "## Sub-Task: ...", "#### Subtask 3: ..." 등
+        flexible_header_re = re.compile(
+            r"(?im)^#+\s*Sub[\s\-]?[Tt]ask\s*(?:(\d+)\s*:?)?\s*:?\s*(.+?)\s*$"
+        )
+        headers = list(flexible_header_re.finditer(text))
+
+        if headers:
+            subtasks = []
+            max_base_id = max(tasks_to_replan) if tasks_to_replan else 0
+            new_id_offset = 0  # tasks_to_replan 범위 초과 시 max_base_id*10+N 형태로 생성
+
+            for i, h in enumerate(headers):
+                start = h.start()
+                end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+                body_block = text[start:end].strip()
+
+                # ID 배정 전략:
+                # 1) 헤더 번호가 tasks_to_replan 안에 있으면 그대로 사용
+                # 2) 헤더 번호가 있지만 tasks_to_replan에 없음 → tasks_to_replan[i] 또는 합성 ID
+                # 3) 헤더 번호 없음 → tasks_to_replan[i] 또는 합성 ID
+                sid_str = h.group(1)
+                if sid_str:
+                    parsed_id = int(sid_str)
+                    if parsed_id in tasks_to_replan:
+                        sub_id = parsed_id
+                    elif i < len(tasks_to_replan):
+                        sub_id = tasks_to_replan[i]
+                    else:
+                        new_id_offset += 1
+                        sub_id = max_base_id * 10 + new_id_offset
+                else:
+                    if i < len(tasks_to_replan):
+                        sub_id = tasks_to_replan[i]
+                    else:
+                        new_id_offset += 1
+                        sub_id = max_base_id * 10 + new_id_offset
+
+                title = h.group(2).strip()
+
+                # Skills / Objects 추출: 마크다운 볼드(**...**) 형식도 처리
+                skills, objects = [], []
+                sm = re.search(
+                    r"(?im)^\s*-?\s*\*{0,2}Skills\s+Required\*{0,2}\s*:\s*(.+)$",
+                    body_block,
+                )
+                if sm:
+                    skills = [
+                        s.strip().strip("*").strip()
+                        for s in sm.group(1).split(",")
+                        if s.strip().strip("*").strip()
+                    ]
+                om = re.search(
+                    r"(?im)^\s*-?\s*\*{0,2}Related\s+Objects?\*{0,2}\s*:\s*(.+)$",
+                    body_block,
+                )
+                if om:
+                    objects = [
+                        o.strip().strip("*").strip()
+                        for o in om.group(1).split(",")
+                        if o.strip().strip("*").strip()
+                    ]
+
+                subtasks.append({
+                    "id": sub_id,
+                    "title": title,
+                    "skills": skills,
+                    "objects": objects,
+                    "raw_block": body_block,
+                    "initial_conditions": "",
+                })
+            return subtasks
+
+        # Step 3. SubTask 헤더 없는 경우: 실제 action 스텝 여부 확인
+        # "GoToObject(robot1, ...)" 또는 "(gotoobject robot1 ...)" 형태
+        _SKILL_NAMES = (
+            "GoToObject", "PickupObject", "PutObject",
+            "OpenObject", "CloseObject", "ToggleObject", "SliceObject",
+        )
+        action_step_re = re.compile(
+            r"(?im)^\s*(?:\d+[\.\)]\s+)?(?:\*+)?"
+            r"(?:" + "|".join(_SKILL_NAMES) + r")\s*[\(\s]",
+        )
+        pddl_step_re = re.compile(
+            r"(?im)^\s*\((?:gotoobject|pickupobject|putobject|openobject"
+            r"|closeobject|toggleobject|sliceobject)\s+",
+        )
+        has_action_steps = bool(action_step_re.search(text) or pddl_step_re.search(text))
+
+        if not has_action_steps:
+            # 헤더도 없고 action 스텝도 없음 → LLM이 drop 결론
+            return []
+
+        # Step 4. 헤더 없지만 action 스텝 있음 → 전체를 단일 서브태스크로 래핑
+        sub_id = tasks_to_replan[0] if tasks_to_replan else 99
+        title_m = re.search(r"(?im)^#+\s*Task\s+Description\s*:\s*(.+)$", text)
+        title = title_m.group(1).strip() if title_m else f"Subtask {sub_id}"
+        skills, objects = [], []
+        sm = re.search(
+            r"(?im)^\s*-?\s*\*{0,2}Skills\s+Required\*{0,2}\s*:\s*(.+)$", text
+        )
+        if sm:
+            skills = [
+                s.strip().strip("*").strip()
+                for s in sm.group(1).split(",")
+                if s.strip().strip("*").strip()
+            ]
+        om = re.search(
+            r"(?im)^\s*-?\s*\*{0,2}Related\s+Objects?\*{0,2}\s*:\s*(.+)$", text
+        )
+        if om:
+            objects = [
+                o.strip().strip("*").strip()
+                for o in om.group(1).split(",")
+                if o.strip().strip("*").strip()
+            ]
+        return [{
+            "id": sub_id,
+            "title": title,
+            "skills": skills,
+            "objects": objects,
+            "raw_block": text,
+            "initial_conditions": "",
+        }]
 
     def extract_domain_header(self, domain_content: str) -> str:
         """
@@ -1324,7 +1491,7 @@ class TaskManager:
     def generate_dag(self) -> None:
         """LLM을 사용하여 plan의 DAG 생성 (병렬성 분석)"""
         try:
-            print("\n[DAG] Generating DAG for parallelism analysis...")
+            #print("\n[DAG] Generating DAG for parallelism analysis...")
 
             dag_generator = DAGGenerator(gpt_version=self.gpt_version)
 
@@ -1342,7 +1509,7 @@ class TaskManager:
             self.plan_dags = []  # DAG 저장
 
             for plan_file in sorted(plan_files):
-                print(f"[DAG] Processing: {plan_file}")
+                #print(f"[DAG] Processing: {plan_file}")
 
                 # plan 읽기
                 plan_path = os.path.join(plans_dir, plan_file)
@@ -1388,7 +1555,7 @@ class TaskManager:
             # -----------------------------
             # Subtask-level DAG 생성
             # -----------------------------
-            print("\n[SubtaskDAG] Building subtask-level DAG...")
+            
 
             summaries = []
 
@@ -1448,7 +1615,7 @@ class TaskManager:
             # print(f"[SubtaskDAG] Saved: {subtask_json}")
             # print(f"[SubtaskDAG] Saved: {subtask_png}")
 
-            print(f"[DAG] Generated {len(self.plan_dags)} DAGs")
+            print(f"✓ DAG generated")
 
         except Exception as e:
             print(f"[DAG] Error generating DAG: {str(e)}")
@@ -1537,7 +1704,6 @@ class TaskManager:
 
                 out_path = os.path.join(self.file_processor.validated_subtask_path, problem_file)
                 self.file_processor.write_file(out_path, validated)
-                print(f"[VALIDATED WROTE] {out_path}")
 
         except Exception as e:
             print(f"Error in run_llmvalidator: {str(e)}")
@@ -1616,7 +1782,7 @@ class TaskManager:
                 validated = self.file_processor.normalize_pddl(text)
                 out_path = os.path.join(val_dir, filename)
                 self.file_processor.write_file(out_path, validated)
-                print(f"[REPLAN VALIDATED WROTE] {out_path}")
+                #print(f"[REPLAN VALIDATED WROTE] {out_path}")
 
             except Exception as e:
                 print(f"  Warning: Validation failed for subtask {sid}: {e}")
@@ -1699,9 +1865,9 @@ class TaskManager:
                     with open(actions_path, "w") as f:
                         f.write("\n".join(plan_actions))
 
-                    print(f"\n========== FAST-DOWNWARD OUTPUT ({problem_file}) ==========")
-                    print(plan_actions)
-                    print("===========================================================\n")
+                    #print(f"\n========== FAST-DOWNWARD OUTPUT ({problem_file}) ==========")
+                    #print(plan_actions)
+                    #print("===========================================================\n")
                     #print(result.stdout)
                     #print("===========================================================\n")
 
@@ -1751,8 +1917,9 @@ class TaskManager:
             "no_change" | "fully_replanned"
         """
 
-        # 실행 실패한 subtask만 필터링
-        failed = [sid for sid, r in execution_results.items() if not r.success]
+        # 실행 실패한 subtask만 필터링 (이미 drop된 것은 제외)
+        dropped_ids = getattr(executor, '_dropped_subtasks', set()) if executor else set()
+        failed = [sid for sid, r in execution_results.items() if not r.success and sid not in dropped_ids]
         if not failed:
             return "no_change"
         
@@ -1773,6 +1940,7 @@ class TaskManager:
             partial_replanner = None
         
         updated = False
+        dropped_in_this_round = False
 
         # 의존성 기반 replan 그룹 구성:
         # 실패한 subtask + DAG edges로 연결된 미실행 subtask들
@@ -1825,7 +1993,10 @@ class TaskManager:
                     if sid in failed:
                         processed_failed.add(sid)
 
-                print(f"\n[Feedback] Dependency-based replan group for failed subtask {failed_id}: {subtask_ids_in_group}")
+                self._fb_log_header(f"Replan Group {failed_id}")
+                #self._fb_log_line(f"Mode: dependency-based")
+                self._fb_log_line(f"Failed subtask: {failed_id}")
+                self._fb_log_line(f"Target subtasks: {subtask_ids_in_group}")
 
                 if not subtask_ids_in_group:
                     continue
@@ -1840,7 +2011,7 @@ class TaskManager:
                 if context is None:
                     continue
                 
-                print(f"\n[Feedback] Attempting group-level decomposition for group {failed_id}")
+                self._fb_log_line("Action: group-level redecomposition")
                 
                 # 현재 문제/액션 정보 수집
                 plans_dir = self.file_processor.subtask_pddl_plans_path
@@ -1885,16 +2056,17 @@ class TaskManager:
                 if success == "dropped":
                     # 물리적으로 불가능한 서브태스크가 LLM에 의해 drop됨
                     # 이 그룹의 failed subtask들만 dropped로 표시 (다른 그룹은 계속 처리)
+                    dropped_in_this_round = True
                     if executor is not None:
                         for sid in subtask_ids_in_group:
                             if sid in failed:
-                                print(f"[Feedback] Subtask {sid} dropped (physically impossible)")
+                                self._fb_log_line(f"Result: subtask {sid} -> DROPPED (physically impossible)")
                                 executor._dropped_subtasks.add(sid)
-                    print(f"[Feedback] Group {failed_id}: failed subtask(s) dropped as physically impossible")
+                    self._fb_log_line("Group result: DROPPED")
                     continue  # 다른 failed subtask 그룹도 계속 처리
 
                 if success == "replanned":
-                    print(f"[Feedback] Group {failed_id} successfully replanned via decomposition")
+                    self._fb_log_line("Group result: REPLANNED")
 
                     replaced_ids = list(
                         getattr(partial_replanner, "last_replaced_ids", subtask_ids_in_group)
@@ -1918,7 +2090,7 @@ class TaskManager:
                     )
                     
                     if not dag_integrated:
-                        print("[Feedback] DAG integration failed, skipping LP reallocation")
+                        self._fb_log_line("DAG integration: FAILED (skip LP reallocation)")
                         continue
                     
                     # LP 재할당
@@ -1932,17 +2104,18 @@ class TaskManager:
                         )
                         
                         if new_assignment is None:
-                            print("[Feedback] LP reallocation failed")
+                            self._fb_log_line("LP reallocation: FAILED")
                             continue
                     else:
-                        print("[Feedback] Warning: No task_robot_ids provided, skipping LP reallocation")
+                        self._fb_log_line("LP reallocation: SKIPPED (no task_robot_ids)")
                     
                     updated = True
                     # break하지 않고 나머지 failed 그룹도 계속 처리 (drop 등)
         
         # Fallback
-        if not updated:
-            print("[Feedback] Falling back to individual subtask replan")
+        if not updated and not dropped_in_this_round:
+            self._fb_log_header("Fallback Replan")
+            self._fb_log_line("Mode: individual subtask replan")
             subtask_mgr = SubtaskManagerLLM(self.llm, self.gpt_version)
             success_effects_context = ""
             if state_store is not None:
@@ -1996,7 +2169,7 @@ class TaskManager:
                         actions_path = os.path.join(plans_dir, f"{base_name}_actions.txt")
                         with open(actions_path, "w") as f:
                             f.write("\n".join(new_actions))
-                        print(f"[Feedback] Subtask {sid} replanned by Subtask Manager LLM ({len(new_actions)} actions)")
+                        self._fb_log_line(f"Subtask {sid}: REPLANNED ({len(new_actions)} actions)")
                         updated = True
                         plan_actions = new_actions
                         break
@@ -2005,7 +2178,10 @@ class TaskManager:
                     if ok and plan_actions:
                         updated = True
                         break
-        
+        #if dropped_in_this_round and not updated:
+            #self._fb_log_header("Replan Summary")
+            #self._fb_log_line("Result: DROPPED only (no further fallback)")
+
         return "fully_replanned" if updated else "no_change"
 
     def create_decomposition_callback(self, executor=None):
@@ -2034,20 +2210,18 @@ class TaskManager:
             Returns:
                 Dict[subtask_id, action_list] or None if failed
             """
-            print(f"\n{'='*60}")
-            print(f"[DecompCallback] Redecomposing Group {group_id}")
-            print(f"{'='*60}")
-            print(f"  Subtasks in group: {subtask_ids_in_group}")
-            print(f"  Failed subtask: {context.failed_subtask_id}")
-            print(f"  Remaining pending: {context.remaining_pending_ids}")
+            self._fb_log_header(f"Decomp Callback (Group {group_id})")
+            self._fb_log_line(f"Subtasks in group: {subtask_ids_in_group}")
+            self._fb_log_line(f"Failed subtask: {context.failed_subtask_id}")
+            self._fb_log_line(f"Remaining pending: {context.remaining_pending_ids}")
 
             # 실시간 오브젝트 정보 조회 (실행 중인 씬에서)
             if executor is not None:
                 try:
                     live_objects_ai = executor.get_live_objects_ai()
-                    print(f"  ✓ Using live object info ({len(live_objects_ai)} objects)")
+                    self._fb_log_line(f"Live object info: {len(live_objects_ai)} objects")
                 except Exception as e:
-                    print(f"  Warning: Failed to get live objects, using initial: {e}")
+                    self._fb_log_line(f"Live object info unavailable, fallback to initial ({e})")
                     live_objects_ai = self.objects_ai
             else:
                 live_objects_ai = self.objects_ai
@@ -2057,10 +2231,10 @@ class TaskManager:
                 sid for sid in ([context.failed_subtask_id] + context.remaining_pending_ids)
                 if isinstance(sid, int) and sid > 0
             ]
-            print(f"  Tasks to redecompose: {tasks_to_replan}")
+            self._fb_log_line(f"Tasks to redecompose: {tasks_to_replan}")
             
             if not tasks_to_replan:
-                print("  No tasks to replan")
+                self._fb_log_line("No tasks to redecompose")
                 return None
             
             # 2. 원래 서브태스크 목표 정보 수집
@@ -2090,11 +2264,19 @@ class TaskManager:
                 print("  ERROR: No subtask goals found, cannot redecompose")
                 return None
             
-            # 3-1. 성공한 서브태스크의 Effects 포맷
-            success_effects_text = format_success_effects_for_prompt(
-                context.success_effects,
-                exclude_subtask_id=None
-            )
+            # 3-1. 그룹 내 subtask들의 실행 완료된 action에 대한 effects 계산
+            # completed_actions 인덱스 기반으로 각 action의 PDDL effect만 추출
+            action_effects_map = load_subtask_action_effects(self.base_path)
+            completed_acts_by_sid = context.completed_actions_by_subtask  # subtask_id -> completed_actions
+            achieved_lines = []
+            for sid in sorted(subtask_ids_in_group):
+                acts = completed_acts_by_sid.get(sid) or []
+                if not acts:
+                    continue
+                effects = get_effects_for_completed_actions(sid, acts, action_effects_map)
+                if effects:
+                    achieved_lines.append(f"- Subtask {sid}: " + "; ".join(sorted(set(effects))))
+            success_effects_text = "\n".join(achieved_lines) if achieved_lines else ""
 
             # 3-2. 로컬 환경 정보: 현재 씬의 로봇 위치 + 오브젝트 상태
             local_env_lines = []
@@ -2193,11 +2375,23 @@ class TaskManager:
             except Exception as e:
                 print(f"  ERROR: Could not read domain: {e}")
                 return None
-            
+            '''
+            print("\n------------여기임-----------\n")
+            print(context.completed_actions)
+            print("\n------------여기임-----------\n")
+
+            print("\n------------여기임-----------\n")
+            print(combined_goals)
+            print("\n------------여기임-----------\n")
+
+            print("\n------------여기임-----------\n")
+            print(success_effects_text)
+            print("\n------------여기임-----------\n")
+            '''
             # decomposition prompt file 불러오기
-            decompose_prompt_path = os.path.join(self.base_path, "data", "pythonic_plans", f"chaerin_pddl_train_task_decompose.py")
+            decompose_prompt_path = os.path.join(self.base_path, "data", "pythonic_plans", f"chaerin_pddl_train_redecom.py")
             decompose_prompt = self.file_processor.read_file(decompose_prompt_path)
-            
+
             # 6. 재분해 프롬프트 생성
             redecompose_prompt = "You are redecomposing a failed group of subtasks in a multi-robot collaborative task.\n\n"
 
@@ -2216,6 +2410,7 @@ class TaskManager:
             redecompose_prompt += "  - 'hand already has something' → solution: drop the held object first\n"
             redecompose_prompt += "  - 'object not visible / not reachable' → solution: navigate closer or to a different position\n"
             redecompose_prompt += "  - Navigation timeout / stuck → solution: retry with different approach\n"
+            redecompose_prompt += "  - \"can't place an object if agent isn't holding anything\" → solution: navigate to the object, pick it up again, then retry placement (the robot did not successfully pick up the object before reaching the receptacle)\n"
             redecompose_prompt += "In this case, DO NOT drop the goal. Instead, redecompose with corrected action sequences.\n\n"
             redecompose_prompt += "### IMPORTANT: Only drop goals that are DIRECTLY affected by the impossible constraint.\n"
             redecompose_prompt += "Other goals in the group that involve DIFFERENT objects must ALWAYS be kept.\n\n"
@@ -2224,14 +2419,14 @@ class TaskManager:
             redecompose_prompt += f"- Failed Subtask ID: {context.failed_subtask_id}\n"
             redecompose_prompt += f"- Failure Reason: {context.failure_reason}\n"
             redecompose_prompt += f"- Actions completed before failure: {chr(10).join(context.completed_actions) if context.completed_actions else '(none)'}\n"
-            redecompose_prompt += f"- IMPORTANT: The completed actions above have ALREADY been executed. Their effects are real (e.g., if PickupObject succeeded, the robot IS holding the object).\n\n"
+            redecompose_prompt += f"- NOTE: The completed actions listed above were attempted, but their internal sub-steps (like navigation to object) may have silently failed. If the failure reason is 'can't place if not holding anything', it means PickupObject did NOT actually succeed even if it appears in the list — treat the object as NOT held and plan accordingly.\n\n"
 
             redecompose_prompt += "## Already Achieved Effects (from successful subtasks - DO NOT REPEAT)\n"
             redecompose_prompt += f"{success_effects_text if success_effects_text else '(None - this is the first attempt)'}\n\n"
             redecompose_prompt += "## Local Environment\n"
             redecompose_prompt += f"{local_env_text if local_env_text else '(Standard kitchen environment)'}\n\n"
 
-            redecompose_prompt += f"## Goals to Consider (ONLY remove goals that are Category A: physically impossible. Keep all Category B: recoverable goals)\n"
+            redecompose_prompt += "## Original Goals of Failed Subtask\n"
             redecompose_prompt += f"{combined_goals}\n\n"
 
             redecompose_prompt += f"\nAVAILABLE ROBOT SKILLS = {self.available_robot_skills}\n\n"
@@ -2253,7 +2448,7 @@ class TaskManager:
             redecompose_prompt += "5. Only return an empty subtask list if ALL goals are physically impossible.\n"
             
             # 7. LLM 호출
-            print("  Calling LLM for redecomposition...")
+            #self._fb_log_line("LLM call: redecomposition")
             try:
                 if "gpt" in self.gpt_version.lower():
                     messages = [{"role": "user", "content": redecompose_prompt}]
@@ -2279,14 +2474,19 @@ class TaskManager:
                 print("  ERROR: Empty response from LLM")
                 return None
             
-            # 8. 응답 파싱
-            #print("  Parsing LLM response...")
-            redecomposed_subtasks = self._decomposed_plan_to_subtasks(redecompose_text)
-            
+            # 8. 응답 파싱 (유연한 파서 사용: 번호 없는 SubTask 헤더 등 다양한 형식 지원)
+            redecomposed_subtasks = self._parse_redecompose_response(redecompose_text, tasks_to_replan)
+            '''
+            print(f"  [Parser] LLM response → {len(redecomposed_subtasks)} subtask(s) parsed")
+            print("\n------------\n")
+            print(redecompose_text)
+            print("\n------------\n")
+            print(tasks_to_replan)
+            print("\n------------\n")
+            '''
             if not redecomposed_subtasks:
-                # LLM이 빈 결과를 반환 = 모든 목표가 불가능하다고 판단
-                # 빈 dict 반환 (성공적 replan, 새 서브태스크 없음)
-                print("  LLM returned no subtasks (all goals may be physically impossible)")
+                # 파서가 액션 스텝을 찾지 못함 = LLM이 물리적으로 불가능으로 판단
+                #self._fb_log_line("LLM result: Drop")
                 return {}
             
             print(f"  ✓ Redecomposed into {len(redecomposed_subtasks)} new subtasks")

@@ -1,0 +1,122 @@
+{
+  "1": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 Apple)",
+      "(holding robot1 Apple)",
+      "(at robot1 Fridge)",
+      "(object-open robot1 Fridge)",
+      "(fridge-open Fridge)",
+      "(at-location Apple Fridge)",
+      "(not (holding robot1 Apple))",
+      "(not (inaction robot1))",
+      "(object-close robot1 Fridge)",
+      "(not (fridge-open Fridge))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 apple (1)",
+      "pickupobject robot1 apple countertop (1)",
+      "gotoobject robot1 fridge (1)",
+      "openfridge robot1 fridge (1)",
+      "putobjectinfridge robot1 apple fridge (1)",
+      "closeobject robot1 fridge (1)"
+    ]
+  },
+  "2": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 bottle)",
+      "(holding robot1 bottle)",
+      "(at robot1 fridge)",
+      "(object-open robot1 fridge)",
+      "(fridge-open fridge)",
+      "(at-location bottle fridge)",
+      "(not (holding robot1 bottle))",
+      "(not (inaction robot1))",
+      "(object-close robot1 fridge)",
+      "(not (fridge-open fridge))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 bottle (1)",
+      "pickupobject robot1 bottle shelf (1)",
+      "gotoobject robot1 fridge (1)",
+      "openfridge robot1 fridge (1)",
+      "putobjectinfridge robot1 bottle fridge (1)",
+      "closeobject robot1 fridge (1)"
+    ]
+  },
+  "3": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 Bread)",
+      "(holding robot1 Bread)",
+      "(at robot1 Fridge)",
+      "(object-open robot1 Fridge)",
+      "(fridge-open Fridge)",
+      "(at-location Bread Fridge)",
+      "(not (holding robot1 Bread))",
+      "(not (inaction robot1))",
+      "(object-close robot1 Fridge)",
+      "(not (fridge-open Fridge))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 bread (1)",
+      "pickupobject robot1 bread countertop (1)",
+      "gotoobject robot1 fridge (1)",
+      "openfridge robot1 fridge (1)",
+      "putobjectinfridge robot1 bread fridge (1)",
+      "closeobject robot1 fridge (1)"
+    ]
+  },
+  "4": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 lettuce)",
+      "(holding robot1 lettuce)",
+      "(at robot1 fridge)",
+      "(object-open robot1 fridge)",
+      "(fridge-open fridge)",
+      "(at-location lettuce fridge)",
+      "(not (holding robot1 lettuce))",
+      "(not (inaction robot1))",
+      "(object-close robot1 fridge)",
+      "(not (fridge-open fridge))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 lettuce (1)",
+      "pickupobject robot1 lettuce countertop (1)",
+      "gotoobject robot1 fridge (1)",
+      "openfridge robot1 fridge (1)",
+      "putobjectinfridge robot1 lettuce fridge (1)",
+      "closeobject robot1 fridge (1)"
+    ]
+  },
+  "5": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 egg)",
+      "(holding robot1 egg)",
+      "(at robot1 fridge)",
+      "(object-open robot1 fridge)",
+      "(fridge-open fridge)",
+      "(at-location egg fridge)",
+      "(not (holding robot1 egg))",
+      "(not (inaction robot1))",
+      "(object-close robot1 fridge)",
+      "(not (fridge-open fridge))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 egg (1)",
+      "pickupobject robot1 egg floor (1)",
+      "gotoobject robot1 fridge (1)",
+      "openfridge robot1 fridge (1)",
+      "putobjectinfridge robot1 egg fridge (1)",
+      "closeobject robot1 fridge (1)"
+    ]
+  }
+}
