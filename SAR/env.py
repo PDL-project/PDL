@@ -398,12 +398,11 @@ class SAREnv(SARBaseEnv):
 
         act_successes, act_texts = [], []
 
-        # NOTE: here we append the successes from the drop action
-        #       at the end, we have to assign True to success of ALL agents that did this action if any of these is true
         drop_successes={}
 
         for agent_idx in range(self.num_agents):
             action=actions[agent_idx]
+            agent_name = self.agent_names[agent_idx]
 
             # @ coela - added this to handle SendMessage
             if "SendMessage" in action:
@@ -419,8 +418,31 @@ class SAREnv(SARBaseEnv):
                     successes=[int(e['success']) for e in events]
                     if 1 in successes: self.event=events[successes.index(1)]
                     else: self.event=events[-1]
-
-                else: self.event=self.controller.step(**action_kwargs)
+                elif action.startswith("NavigateTo("):
+                    # For NavigateTo targeting a Person, navigate directly by position
+                    # (bypasses visibility check — PDDL planning guarantees the agent knows the person's location)
+                    _target_name = action.split("(")[1].split(")")[0].strip()
+                    _target_obj = self.controller.name_get(_target_name)
+                    if _target_obj is not None and _target_obj.class_name() == 'Person':
+                        _agent = self.controller.get('agents', agent_idx)
+                        _eps = _target_obj.get_radius()
+                        _success, _info = self.controller.backend.navigate(_agent, _target_obj.position, eps=_eps)
+                        if _success:
+                            _target_obj.spotted = True
+                            self.controller.field.update_visibility()
+                        _obs = self.controller.get_observation(agent_idx)
+                        self.event = {
+                            'success': _success,
+                            'global_obs': _obs['global_obs'],
+                            'local_obs': _obs['local_obs'],
+                            'visual_obs': None,
+                            'error_type': '' if _success else 'not_interactable',
+                            'info': _info,
+                        }
+                    else:
+                        self.event=self.controller.step(**action_kwargs)
+                else:
+                    self.event=self.controller.step(**action_kwargs)
 
                 act_success=self.event['success']
                 error_type=self.event['error_type']

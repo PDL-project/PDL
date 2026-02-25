@@ -273,7 +273,12 @@ class MultiRobotExecutor:
             self.agent_success_counts[agent_id] += 1
 
     def _compute_balance_metric(self) -> float:
-        """SmartLLM식 balance = min(x_i) / max(x_i), x_i=agent i의 성공 액션 수."""
+        """SmartLLM식 balance = min(x_i) / max(x_i), x_i=agent i의 성공 액션 수.
+        모든 서브태스크가 성공한 경우에만 계산, 그렇지 않으면 0."""
+        if self._subtask_results and any(
+            not r.success for r in self._subtask_results.values()
+        ):
+            return 0.0
         if not self.agent_success_counts:
             return 0.0
         mx = max(self.agent_success_counts)

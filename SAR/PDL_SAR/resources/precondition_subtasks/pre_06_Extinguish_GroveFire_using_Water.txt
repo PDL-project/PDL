@@ -1,0 +1,53 @@
+# Task Description: Extinguish GroveFire using Water.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not at any reservoir
+# 2. Robot not holding any supply
+# 3. GroveFire_Region_1 is active
+
+# SubTask 6: Extinguish GroveFire using Water.
+    Skills Required: GoToObject, GetSupply, UseSupply
+    Related Objects: ReservoirDelta(type=Water), GroveFire_Region_1(fire=GroveFire)
+
+GoToObject(robot1, ReservoirDelta)
+   Preconditions:
+     (not (at robot1 ReservoirDelta))
+   Effects:
+     (at robot1 ReservoirDelta)
+
+GetSupply(robot1, ReservoirDelta, Water)
+   Preconditions:
+     (at robot1 ReservoirDelta)
+     (has-resource ReservoirDelta Water)
+     (is-supply Water)
+   Effects:
+     (has-supply robot1 Water)
+
+GoToObject(robot1, GroveFire_Region_1)
+   Preconditions:
+     (not (at robot1 GroveFire_Region_1))
+   Effects:
+     (at robot1 GroveFire_Region_1)
+
+UseSupply(robot1, GroveFire_Region_1, Water)
+   Preconditions:
+     (at robot1 GroveFire_Region_1)
+     (has-supply robot1 Water)
+     (is-region GroveFire_Region_1)
+     (fire-active GroveFire_Region_1)
+     (exists (GroveFire)
+       (and
+         (region-of GroveFire_Region_1 GroveFire)
+         (supply-for-fire Water GroveFire)
+       )
+     )
+   Effects:
+     (not (fire-active GroveFire_Region_1))
+     (not (has-supply robot1 Water))
+
+Goal condition:
+(not (fire-active GroveFire_Region_1))

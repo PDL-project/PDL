@@ -1,26 +1,50 @@
 {
   "task_idx": 0,
-  "agent_count": 3,
+  "agent_count": 6,
   "assignment": {
-    "1": 1,
-    "2": 3,
-    "3": 2
+    "1": 6,
+    "2": 4,
+    "3": 2,
+    "4": 3,
+    "5": 5,
+    "6": 2,
+    "7": 1
   },
   "subtasks": [
     {
       "id": 1,
-      "title": "Extinguish CaldorFire using Sand.",
-      "robot": 1
+      "title": "Extinguish RidgeFire using Sand.",
+      "robot": 6
     },
     {
       "id": 2,
-      "title": "Extinguish GreatFire using Water.",
-      "robot": 3
+      "title": "Extinguish CanyonFire using Sand.",
+      "robot": 4
     },
     {
       "id": 3,
-      "title": "Find and rescue LostPersonTimmy.",
+      "title": "Extinguish MoorFire using Sand.",
       "robot": 2
+    },
+    {
+      "id": 4,
+      "title": "Extinguish HarborFire using Water.",
+      "robot": 3
+    },
+    {
+      "id": 5,
+      "title": "Extinguish PlainFire using Water.",
+      "robot": 5
+    },
+    {
+      "id": 6,
+      "title": "Extinguish GroveFire using Water.",
+      "robot": 2
+    },
+    {
+      "id": 7,
+      "title": "Find and rescue LostPersonNora, LostPersonLeo, LostPersonMaya, and LostPersonEthan.",
+      "robot": 1
     }
   ]
 }

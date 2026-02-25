@@ -700,28 +700,23 @@ class SARTaskManager(TaskManager):
             print(f"  Succeeded: {n_ok} / {len(results)}")
             print(f"  Failed:    {n_fail} / {len(results)}")
             for sid, r in sorted(results.items()):
-                status = "OK" if r.success else f"FAIL ({r.error_message})"
+                status = "SUCCESS" if r.success else f"FAIL ({r.error_message})"
                 print(f"    Subtask {sid}: {status}")
 
             checker = sar_env.checker
-            '''
-            if hasattr(checker, 'coverage'):
-                cov = checker.coverage[0] if isinstance(checker.coverage, list) else checker.coverage
+            if checker is not None:
                 try:
-                    cov_val = float(cov) if not isinstance(cov, str) else float(cov.replace('%', '')) / 100
-                    print(f"\n  Coverage:       {cov_val:.2%}")
-                except:
-                    print(f"\n  Coverage:       {cov}")
-
-            if hasattr(checker, 'transport_rate'):
-                tr_rate = checker.transport_rate[0] if isinstance(checker.transport_rate, list) else checker.transport_rate
-                print(f"  Transport rate: {tr_rate:.2%}")
-
-            if hasattr(checker, 'finished'):
-                print(f"  Finished:       {checker.finished}")
-            else:
-                print(f"  Finished:       Check env status")
-            '''
+                    coverage       = checker.get_coverage()
+                    transport_rate = checker.get_transport_rate()
+                    finished       = checker.check_success()
+                    balance        = executor._compute_balance_metric()
+                    exec_rate      = executor._compute_exec_rate()
+                    print(
+                        f"\n  Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "
+                        f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
+                    )
+                except Exception as _e:
+                    print(f"  [Metrics] Error computing metrics: {_e}")
             print("=" * 60)
 
 

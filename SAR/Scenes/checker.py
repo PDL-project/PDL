@@ -73,7 +73,7 @@ class Checker(BaseChecker):
         # loop through fires since we use reservoir in an as-needed basis
         for arg in params["fires"]:
             reservoir_name=supply_to_reservoir[arg.tp]
-            subtasks.append(f"GetSupply({reservoir_name})")
+            subtasks.append(f"GetSupply({reservoir_name}, {arg.tp})")
             subtasks.append(f"NavigateTo({reservoir_name})")
         # ----------------------------------------------------------
 

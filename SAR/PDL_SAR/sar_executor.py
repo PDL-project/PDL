@@ -6,7 +6,7 @@ Pipeline role (mirrors MultiRobotExecutor in AI2Thor/baselines/PDL/scripts/):
   2. execute_in_sar()   - Executes plans in SAREnv, returns SubTaskExecutionResult per subtask.
   3. execute_in_sar_with_feedback() - Same but invokes on_subtask_failed callback for replanning.
 
-PDDL action -> SAR action mapping (FastDownward outputs lowercase):
+PDDL action -> SAR action mapping:
   (gotoobject   r obj)        ->  NavigateTo(<obj>)
   (getsupply    r src s)      ->  GetSupply(<src>, <supply_type>)
   (usesupply    r reg s)      ->  UseSupply(<parent_fire>, <supply_type>)
@@ -83,13 +83,12 @@ def _pddl_to_sar(pddl_line: str, object_name_map: Dict[str, str]) -> str:
 
     elif action_lower == "getsupply":
         src = canon(args[1])
-        supply = canon(args[2])
+        supply = canon(args[2]).capitalize()
         return f"GetSupply({src}, {supply})"
 
     elif action_lower == "usesupply":
-        target = canon(args[1])   # may be a region or a fire
-        supply = canon(args[2])
-        # Derive parent fire name: "CaldorFire_Region_1" -> "CaldorFire"
+        target = canon(args[1])
+        supply = canon(args[2]).capitalize()
         fire_name = _region_to_fire(target, object_name_map)
         return f"UseSupply({fire_name}, {supply})"
 
@@ -165,7 +164,11 @@ class SARExecutor:
         self._subtask_results: Dict[int, SubTaskExecutionResult] = {}
         self._dropped_subtasks: Set[int] = set()
 
-        # built in run() from the environment's object list
+        # Metrics
+        self.agent_success_counts: List[int] = []  # per-agent successful action count
+        self.total_exec: int = 0                   # total non-NoOp actions attempted
+        self.success_exec: int = 0                 # successful non-NoOp actions
+
         self._object_name_map: Dict[str, str] = {}   # lowercase -> original
 
     # ------------------------------------------------------------------
@@ -327,8 +330,12 @@ class SARExecutor:
         self._dropped_subtasks = set()
 
         num_agents = sar_env.num_agents
-        print("**Debug: num_agents=" + str(num_agents))
         agent_names = sar_env.agent_names   # ['Alice', 'Bob', ...]
+
+        # Reset metrics
+        self.agent_success_counts = [0] * num_agents
+        self.total_exec = 0
+        self.success_exec = 0
 
         # robot_id (1-based) -> agent_idx (0-based)
         def robot_to_idx(rid: int) -> int:
@@ -419,7 +426,10 @@ class SARExecutor:
                     if sid is None or act == "NoOp()":
                         continue
 
+                    self.total_exec += 1
                     if success:
+                        self.success_exec += 1
+                        self.agent_success_counts[agent_idx] += 1
                         subtask_completed[sid].append(act)
                     else:
                         # Non-critical failures (e.g., already extinguished region)
@@ -507,7 +517,11 @@ class SARExecutor:
                 error = f"Environment error on retry: {e}"
                 break
 
+            self.total_exec += 1
             if success:
+                self.success_exec += 1
+                if agent_idx < len(self.agent_success_counts):
+                    self.agent_success_counts[agent_idx] += 1
                 completed.append(act)
             else:
                 print(f"[SARExecutor] Retry — {agent_names[agent_idx]} FAILED: {act}")
@@ -522,6 +536,30 @@ class SARExecutor:
             error_message=error,
             completed_actions=completed,
         )
+
+    # ------------------------------------------------------------------
+    # Evaluation metrics
+    # ------------------------------------------------------------------
+
+    def _compute_balance_metric(self) -> float:
+        """balance = min(x_i) / max(x_i), x_i = agent i의 성공 액션 수.
+        모든 서브태스크가 성공한 경우에만 계산, 그렇지 않으면 0."""
+        if self._subtask_results and any(
+            not r.success for r in self._subtask_results.values()
+        ):
+            return 0.0
+        if not self.agent_success_counts:
+            return 0.0
+        mx = max(self.agent_success_counts)
+        if mx == 0:
+            return 0.0
+        return min(self.agent_success_counts) / mx
+
+    def _compute_exec_rate(self) -> float:
+        """Exec Rate = successful low-level actions / attempted actions."""
+        if self.total_exec <= 0:
+            return 0.0
+        return float(self.success_exec) / float(self.total_exec)
 
     # ------------------------------------------------------------------
     # Reload after replanning (called by SARTaskManager.reload_executor_with_integrated_dag)
@@ -574,7 +612,6 @@ def _extract_navigate_target(sar_action: str) -> Optional[str]:
     return the target name so a NavigateTo can be auto-inserted before them.
 
       GetSupply(ReservoirUtah, Sand)       -> "ReservoirUtah"
-      UseSupply(CaldorFire, Sand)          -> "CaldorFire"
       Carry(LostPersonTimmy)               -> "LostPersonTimmy"
       DropOff(DepositFacility, Timmy)      -> "DepositFacility"
       StoreSupply(DepositFacility)         -> "DepositFacility"
@@ -587,8 +624,7 @@ def _extract_navigate_target(sar_action: str) -> Optional[str]:
     action_name, inner = m.group(1), m.group(2)
 
     if action_name == "GetSupply":
-        return inner.split(",")[0].strip()
-    elif action_name == "UseSupply":
+        # 자동화: insert NavigateTo when PDDL omits gotoobject before getsupply
         return inner.split(",")[0].strip()
     elif action_name == "Carry":
         return inner.strip()

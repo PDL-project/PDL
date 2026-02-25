@@ -1,0 +1,3 @@
+getsupply robot1 reservoirdelta water (1)
+gotoobject robot1 harborfire_region_1 (1)
+usesupply robot1 harborfire_region_1 water (1)

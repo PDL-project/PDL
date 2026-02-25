@@ -1,12 +1,11 @@
 """
-run_step7.py — Step 7 (SARExecutor) 단독 실행 스크립트
-
-Step 1~6 결과물(assignment.json, PDDL plans)이 이미 저장된 상태에서
-Step 7만 바로 실행합니다.
+Step 7 (SARExecutor) 단독 실행 스크립트
+    Step 1~6 결과물(assignment.json, PDDL plans)이 이미 저장된 상태에서
+    Step 7만 바로 실행
 
 Usage:
     cd /home/nuc/Desktop/PDL/SAR
-    python PDL_SAR/run_step7.py --scene 1 --agents 3
+    python PDL_SAR/executor_Module.py --scene 1 --agents 3
 """
 
 from __future__ import annotations
@@ -66,8 +65,23 @@ def main():
     print(f"  Succeeded: {n_ok} / {len(results)}")
     print(f"  Failed:    {n_fail} / {len(results)}")
     for sid, r in sorted(results.items()):
-        status = "OK" if r.success else f"FAIL ({r.error_message})"
+        status = "SUCCESS" if r.success else f"FAIL ({r.error_message})"
         print(f"    Subtask {sid}: {status}")
+
+    checker = sar_env.checker
+    if checker is not None:
+        try:
+            coverage       = checker.get_coverage()
+            transport_rate = checker.get_transport_rate()
+            finished       = checker.check_success()
+            balance        = executor._compute_balance_metric()
+            exec_rate      = executor._compute_exec_rate()
+            print(
+                f"\n  Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "
+                f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
+            )
+        except Exception as _e:
+            print(f"  [Metrics] Error computing metrics: {_e}")
     print("=" * 60)
 
 

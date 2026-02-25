@@ -1,0 +1,53 @@
+# Task Description: Extinguish MoorFire using Sand.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not at any reservoir
+# 2. Robot not holding any supply
+# 3. MoorFire_Region_1 is active
+
+# SubTask 3: Extinguish MoorFire using Sand.
+    Skills Required: GoToObject, GetSupply, UseSupply
+    Related Objects: ReservoirSierra(type=Sand), MoorFire_Region_1(fire=MoorFire)
+
+GoToObject(robot1, ReservoirSierra)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 ReservoirSierra)
+
+GetSupply(robot1, ReservoirSierra, Sand)
+   Preconditions:
+     (at robot1 ReservoirSierra)
+     (has-resource ReservoirSierra Sand)
+     (is-supply Sand)
+   Effects:
+     (has-supply robot1 Sand)
+
+GoToObject(robot1, MoorFire_Region_1)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 MoorFire_Region_1)
+
+UseSupply(robot1, MoorFire_Region_1, Sand)
+   Preconditions:
+     (at robot1 MoorFire_Region_1)
+     (has-supply robot1 Sand)
+     (is-region MoorFire_Region_1)
+     (fire-active MoorFire_Region_1)
+     (exists (?f - object)
+       (and
+         (region-of MoorFire_Region_1 ?f)
+         (supply-for-fire Sand ?f)
+       )
+     )
+   Effects:
+     (not (fire-active MoorFire_Region_1))
+     (not (has-supply robot1 Sand))
+
+Goal condition:
+(not (fire-active MoorFire_Region_1))

@@ -1,0 +1,3 @@
+getsupply robot1 reservoirsierra sand (1)
+gotoobject robot1 ridgefire_region_1 (1)
+usesupply robot1 ridgefire_region_1 sand (1)

@@ -1,0 +1,71 @@
+{
+  "subtask_name": "subtask_06_Extinguish_GroveFire_using_Water",
+  "nodes": [
+    {
+      "id": 0,
+      "action": "getsupply robot1 reservoirdelta water (1)",
+      "action_type": "getsupply",
+      "robot": "robot1",
+      "objects": [
+        "reservoirdelta",
+        "water"
+      ],
+      "parallel_group": 0
+    },
+    {
+      "id": 1,
+      "action": "gotoobject robot1 grovefire_region_1 (1)",
+      "action_type": "gotoobject",
+      "robot": "robot1",
+      "objects": [
+        "grovefire_region_1"
+      ],
+      "parallel_group": 1
+    },
+    {
+      "id": 2,
+      "action": "usesupply robot1 grovefire_region_1 water (1)",
+      "action_type": "usesupply",
+      "robot": "robot1",
+      "objects": [
+        "grovefire_region_1",
+        "water"
+      ],
+      "parallel_group": 2
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 0,
+      "to_id": 1,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "causal"
+    },
+    {
+      "from_id": 0,
+      "to_id": 2,
+      "dependency_type": "binding"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      0
+    ],
+    "1": [
+      1
+    ],
+    "2": [
+      2
+    ]
+  },
+  "binding_edges": [
+    {
+      "from": 0,
+      "to": 2
+    }
+  ]
+}

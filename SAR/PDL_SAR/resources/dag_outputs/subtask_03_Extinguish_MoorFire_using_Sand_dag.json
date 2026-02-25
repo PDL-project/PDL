@@ -1,45 +1,45 @@
 {
-  "subtask_name": "subtask_02_Extinguish_GreatFire_using_Water",
+  "subtask_name": "subtask_03_Extinguish_MoorFire_using_Sand",
   "nodes": [
     {
       "id": 0,
-      "action": "gotoobject robot1 reservoiryork (1)",
+      "action": "gotoobject robot1 reservoirsierra (1)",
       "action_type": "gotoobject",
       "robot": "robot1",
       "objects": [
-        "reservoiryork"
+        "reservoirsierra"
       ],
       "parallel_group": 0
     },
     {
       "id": 1,
-      "action": "getsupply robot1 reservoiryork water (1)",
+      "action": "getsupply robot1 reservoirsierra sand (1)",
       "action_type": "getsupply",
       "robot": "robot1",
       "objects": [
-        "reservoiryork",
-        "water"
+        "reservoirsierra",
+        "sand"
       ],
       "parallel_group": 1
     },
     {
       "id": 2,
-      "action": "gotoobject robot1 greatfire_region_1 (1)",
+      "action": "gotoobject robot1 moorfire_region_1 (1)",
       "action_type": "gotoobject",
       "robot": "robot1",
       "objects": [
-        "greatfire_region_1"
+        "moorfire_region_1"
       ],
       "parallel_group": 2
     },
     {
       "id": 3,
-      "action": "usesupply robot1 greatfire_region_1 water (1)",
+      "action": "usesupply robot1 moorfire_region_1 sand (1)",
       "action_type": "usesupply",
       "robot": "robot1",
       "objects": [
-        "greatfire_region_1",
-        "water"
+        "moorfire_region_1",
+        "sand"
       ],
       "parallel_group": 3
     }

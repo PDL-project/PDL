@@ -3,71 +3,143 @@
   "nodes": [
     {
       "id": 1,
-      "name": "subtask_01_Extinguish_CaldorFire_using_Sand",
+      "name": "subtask_01_Extinguish_RidgeFire_using_Sand",
       "objects": [
         "robot1",
-        "ReservoirUtah",
-        "CaldorFire_Region_1",
-        "CaldorFire_Region_2",
+        "ReservoirSierra",
+        "RidgeFire_Region_1",
         "Sand"
       ],
       "preconds": [
         "Robot is not at any reservoir",
         "Robot is not holding any supply",
-        "CaldorFire regions are active"
+        "RidgeFire_Region_1 is active"
       ],
       "effects": [
-        "CaldorFire_Region_1 is no longer active",
-        "CaldorFire_Region_2 is no longer active",
-        "Robot is not holding any supply"
+        "Robot has extinguished the fire in RidgeFire_Region_1",
+        "Robot is not holding Sand"
       ]
     },
     {
       "id": 2,
-      "name": "subtask_02_Extinguish_GreatFire_using_Water",
+      "name": "subtask_02_Extinguish_CanyonFire_using_Sand",
       "objects": [
         "robot1",
-        "ReservoirYork",
-        "GreatFire_Region_1",
-        "Water"
+        "ReservoirSierra",
+        "CanyonFire_Region_1",
+        "Sand"
       ],
       "preconds": [
         "Robot is not inactive.",
-        "Robot is at ReservoirYork.",
-        "ReservoirYork has Water.",
-        "Water is a supply.",
-        "Robot is at GreatFire_Region_1.",
-        "GreatFire_Region_1 is a region.",
-        "GreatFire_Region_1 is on fire.",
-        "Water can extinguish the fire in GreatFire_Region_1."
+        "Robot is at ReservoirSierra.",
+        "ReservoirSierra has Sand.",
+        "CanyonFire_Region_1 is active."
       ],
       "effects": [
-        "Robot is at ReservoirYork.",
-        "Robot has Water.",
-        "Robot is at GreatFire_Region_1.",
-        "GreatFire_Region_1 is no longer on fire.",
-        "Robot no longer has Water."
+        "Robot is at CanyonFire_Region_1.",
+        "Robot no longer has Sand.",
+        "CanyonFire_Region_1 is no longer active."
       ]
     },
     {
       "id": 3,
-      "name": "subtask_03_Find_and_rescue_LostPersonTimmy",
+      "name": "subtask_03_Extinguish_MoorFire_using_Sand",
       "objects": [
         "robot1",
-        "LostPersonTimmy",
+        "ReservoirSierra",
+        "MoorFire_Region_1",
+        "Sand"
+      ],
+      "preconds": [
+        "Robot is not at any reservoir.",
+        "Robot is not holding any supply.",
+        "MoorFire_Region_1 is active."
+      ],
+      "effects": [
+        "Robot is at MoorFire_Region_1.",
+        "MoorFire_Region_1 is no longer active.",
+        "Robot is not holding Sand."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Extinguish_HarborFire_using_Water",
+      "objects": [
+        "robot1",
+        "ReservoirDelta",
+        "HarborFire_Region_1",
+        "Water",
+        "HarborFire"
+      ],
+      "preconds": [
+        "Robot1 is not at any reservoir.",
+        "Robot1 is not holding any supply.",
+        "HarborFire_Region_1 is active."
+      ],
+      "effects": [
+        "Robot1 has extinguished the fire in HarborFire_Region_1.",
+        "Robot1 no longer has the water supply."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Extinguish_PlainFire_using_Water",
+      "objects": [
+        "robot1",
+        "ReservoirDelta",
+        "PlainFire_Region_1",
+        "Water",
+        "PlainFire"
+      ],
+      "preconds": [
+        "Robot is not at any reservoir",
+        "Robot is not holding any supply",
+        "PlainFire_Region_1 is active"
+      ],
+      "effects": [
+        "Robot has extinguished the fire in PlainFire_Region_1",
+        "Robot is no longer holding Water"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Extinguish_GroveFire_using_Water",
+      "objects": [
+        "robot1",
+        "ReservoirDelta",
+        "GroveFire_Region_1",
+        "Water",
+        "GroveFire"
+      ],
+      "preconds": [
+        "Robot is not at any reservoir",
+        "Robot is not holding any supply",
+        "GroveFire_Region_1 is active"
+      ],
+      "effects": [
+        "Robot extinguishes the fire in GroveFire_Region_1",
+        "Robot is not holding any supply"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "subtask_07_Find_and_rescue_LostPersonNora_LostPersonLeo_LostPersonMaya_and_LostPersonEthan",
+      "objects": [
+        "robot1",
+        "LostPersonNora",
+        "LostPersonLeo",
+        "LostPersonMaya",
+        "LostPersonEthan",
         "DepositFacility"
       ],
       "preconds": [
-        "Robot is not at LostPersonTimmy's location",
-        "LostPersonTimmy's location is unknown",
-        "Robot is not carrying LostPersonTimmy"
+        "Robot is at the starting location",
+        "Positions of all lost persons are unknown",
+        "Robot is not carrying anyone"
       ],
       "effects": [
-        "LostPersonTimmy is found",
-        "Robot is at LostPersonTimmy's location",
-        "Robot is carrying LostPersonTimmy",
-        "Robot is at DepositFacility",
-        "LostPersonTimmy is rescued"
+        "All lost persons are found",
+        "All lost persons are rescued and delivered to the Deposit Facility"
       ]
     }
   ],
@@ -76,7 +148,11 @@
     "0": [
       1,
       2,
-      3
+      3,
+      4,
+      5,
+      6,
+      7
     ]
   }
 }

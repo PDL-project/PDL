@@ -1,0 +1,55 @@
+# Task Description: Extinguish PlainFire using Water.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not at any reservoir
+# 2. Robot not holding any supply
+# 3. PlainFire_Region_1 is active
+
+# SubTask 5: Extinguish PlainFire using Water.
+    Skills Required: GoToObject, GetSupply, UseSupply
+    Related Objects: ReservoirDelta(type=Water), PlainFire_Region_1(fire=PlainFire)
+
+GoToObject(robot1, ReservoirDelta)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 ReservoirDelta)
+
+GetSupply(robot1, ReservoirDelta, Water)
+   Preconditions:
+     (at robot1 ReservoirDelta)
+     (has-resource ReservoirDelta Water)
+     (is-supply Water)
+   Effects:
+     (has-supply robot1 Water)
+
+GoToObject(robot1, PlainFire_Region_1)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 PlainFire_Region_1)
+
+UseSupply(robot1, PlainFire_Region_1, Water)
+   Preconditions:
+     (at robot1 PlainFire_Region_1)
+     (has-supply robot1 Water)
+     (is-region PlainFire_Region_1)
+     (fire-active PlainFire_Region_1)
+     (exists (?f - object)
+       (and
+         (region-of PlainFire_Region_1 ?f)
+         (supply-for-fire Water ?f)
+       )
+     )
+   Effects:
+     (not (fire-active PlainFire_Region_1))
+     (not (has-supply robot1 Water))
+
+Goal condition:
+(not (fire-active PlainFire_Region_1))
+
+# Task Extinguish PlainFire using Water is done.

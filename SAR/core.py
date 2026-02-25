@@ -1040,7 +1040,7 @@ PersonStatus = Enum('PersonStatus', ['GRABBED', 'GROUNDED'])
 @collidable(is_collidable=True)
 class Person:
     # minimium amount of agents required to pick up
-    MIN_REQUIRED_AGENTS=2
+    MIN_REQUIRED_AGENTS=1
 
     def __init__(self, extra_load=0):
         # additional load from person additionally from MIN_REQUIRED_AGENTS

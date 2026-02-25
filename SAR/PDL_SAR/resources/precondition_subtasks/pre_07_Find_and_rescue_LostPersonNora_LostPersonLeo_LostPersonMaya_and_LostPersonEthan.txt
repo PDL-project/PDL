@@ -1,0 +1,141 @@
+# Task Description: Find and rescue LostPersonNora, LostPersonLeo, LostPersonMaya, and LostPersonEthan.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot has not explored yet
+# 2. LostPersonNora, LostPersonLeo, LostPersonMaya, and LostPersonEthan positions unknown
+# 3. Robot not carrying anyone
+
+# SubTask 7: Find and rescue LostPersonNora, LostPersonLeo, LostPersonMaya, and LostPersonEthan.
+    Skills Required: Explore, GoToObject, Carry, DropOff
+    Related Objects: LostPersonNora(type=Person), LostPersonLeo(type=Person), LostPersonMaya(type=Person), LostPersonEthan(type=Person), DepositFacility(type=Deposit)
+
+Explore(robot1)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (person-found LostPersonNora)
+     (person-found LostPersonLeo)
+     (person-found LostPersonMaya)
+     (person-found LostPersonEthan)
+
+GoToObject(robot1, LostPersonNora)
+   Preconditions:
+     (person-found LostPersonNora)
+     (not (inaction robot1))
+   Effects:
+     (at robot1 LostPersonNora)
+
+Carry(robot1, LostPersonNora)
+   Preconditions:
+     (at robot1 LostPersonNora)
+     (person-found LostPersonNora)
+     (not (carrying robot1 LostPersonNora))
+   Effects:
+     (carrying robot1 LostPersonNora)
+
+GoToObject(robot1, DepositFacility)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 DepositFacility)
+
+DropOff(robot1, LostPersonNora, DepositFacility)
+   Preconditions:
+     (at robot1 DepositFacility)
+     (carrying robot1 LostPersonNora)
+   Effects:
+     (not (carrying robot1 LostPersonNora))
+     (person-rescued LostPersonNora)
+
+GoToObject(robot1, LostPersonLeo)
+   Preconditions:
+     (person-found LostPersonLeo)
+     (not (inaction robot1))
+   Effects:
+     (at robot1 LostPersonLeo)
+
+Carry(robot1, LostPersonLeo)
+   Preconditions:
+     (at robot1 LostPersonLeo)
+     (person-found LostPersonLeo)
+     (not (carrying robot1 LostPersonLeo))
+   Effects:
+     (carrying robot1 LostPersonLeo)
+
+GoToObject(robot1, DepositFacility)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 DepositFacility)
+
+DropOff(robot1, LostPersonLeo, DepositFacility)
+   Preconditions:
+     (at robot1 DepositFacility)
+     (carrying robot1 LostPersonLeo)
+   Effects:
+     (not (carrying robot1 LostPersonLeo))
+     (person-rescued LostPersonLeo)
+
+GoToObject(robot1, LostPersonMaya)
+   Preconditions:
+     (person-found LostPersonMaya)
+     (not (inaction robot1))
+   Effects:
+     (at robot1 LostPersonMaya)
+
+Carry(robot1, LostPersonMaya)
+   Preconditions:
+     (at robot1 LostPersonMaya)
+     (person-found LostPersonMaya)
+     (not (carrying robot1 LostPersonMaya))
+   Effects:
+     (carrying robot1 LostPersonMaya)
+
+GoToObject(robot1, DepositFacility)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 DepositFacility)
+
+DropOff(robot1, LostPersonMaya, DepositFacility)
+   Preconditions:
+     (at robot1 DepositFacility)
+     (carrying robot1 LostPersonMaya)
+   Effects:
+     (not (carrying robot1 LostPersonMaya))
+     (person-rescued LostPersonMaya)
+
+GoToObject(robot1, LostPersonEthan)
+   Preconditions:
+     (person-found LostPersonEthan)
+     (not (inaction robot1))
+   Effects:
+     (at robot1 LostPersonEthan)
+
+Carry(robot1, LostPersonEthan)
+   Preconditions:
+     (at robot1 LostPersonEthan)
+     (person-found LostPersonEthan)
+     (not (carrying robot1 LostPersonEthan))
+   Effects:
+     (carrying robot1 LostPersonEthan)
+
+GoToObject(robot1, DepositFacility)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 DepositFacility)
+
+DropOff(robot1, LostPersonEthan, DepositFacility)
+   Preconditions:
+     (at robot1 DepositFacility)
+     (carrying robot1 LostPersonEthan)
+   Effects:
+     (not (carrying robot1 LostPersonEthan))
+     (person-rescued LostPersonEthan)
+
+# Task Find and rescue LostPersonNora, LostPersonLeo, LostPersonMaya, and LostPersonEthan is done.
