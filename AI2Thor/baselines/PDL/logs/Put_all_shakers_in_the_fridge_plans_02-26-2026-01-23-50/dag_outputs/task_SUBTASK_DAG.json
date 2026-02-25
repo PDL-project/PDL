@@ -12,13 +12,13 @@
         "floor"
       ],
       "preconds": [
-        "Robot is not holding the saltshaker.",
-        "Robot is not at the saltshaker's location.",
+        "Robot is not holding the SaltShaker.",
+        "Robot is not at the SaltShaker's location.",
         "Fridge is initially closed."
       ],
       "effects": [
-        "Saltshaker is in the fridge.",
-        "Robot is not holding the saltshaker.",
+        "SaltShaker is in the fridge.",
+        "Robot is not holding the SaltShaker.",
         "Fridge is closed."
       ]
     },
@@ -52,7 +52,7 @@
       "from_id": 1,
       "to_id": 2,
       "dependency_type": "resource",
-      "reason": "Both subtasks put items into the fridge, which must be opened/closed"
+      "reason": "Both subtasks put objects into the same fridge, which is opened/closed by both"
     }
   ],
   "parallel_groups": {

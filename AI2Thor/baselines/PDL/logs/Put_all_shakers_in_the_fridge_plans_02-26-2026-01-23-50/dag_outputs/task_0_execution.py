@@ -23,22 +23,22 @@ if scripts_path not in sys.path:
 from MultiRobotExecutor import MultiRobotExecutor, SubtaskPlan
 
 # --- Robot Assignment ---
-ASSIGNMENT = {1: 3, 2: 1}  # subtask_id -> robot_id
+ASSIGNMENT = {1: 2, 2: 4}  # subtask_id -> robot_id
 PARALLEL_GROUPS = {0: [1], 1: [2]}  # group_id -> [subtask_ids]
 AGENT_COUNT = 4
-SPAWN_POSITIONS = {1: (-1.0, 0.9009992480278015, 0.75), 2: (-0.25, 0.9009992480278015, 2.5), 3: (1.25, 0.9009992480278015, 1.25), 4: (-2.5, 0.9009992480278015, 2.75)}  # LP에서 결정된 스폰 좌표
+SPAWN_POSITIONS = {1: (-2.0, 0.9009992480278015, 2.25), 2: (1.0, 0.9009992480278015, 1.25), 3: (-0.25, 0.9009992480278015, 3.0), 4: (-0.75, 0.9009992480278015, -0.25)}  # LP에서 결정된 스폰 좌표
 
 # --- Subtask Plans ---
 SUBTASK_PLANS = {
     1: {
         'name': 'subtask_01_Put_the_SaltShaker_in_the_Fridge',
-        'robot_id': 3,
+        'robot_id': 2,
         'actions': ['gotoobject robot1 saltshaker (1)', 'pickupobject robot1 saltshaker countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 saltshaker fridge (1)', 'closeobject robot1 fridge (1)'],
         'parallel_group': 0,
     },
     2: {
         'name': 'subtask_02_Put_the_PepperShaker_in_the_Fridge',
-        'robot_id': 1,
+        'robot_id': 4,
         'actions': ['gotoobject robot1 peppershaker (1)', 'pickupobject robot1 peppershaker countertop (1)', 'gotoobject robot1 fridge (1)', 'openfridge robot1 fridge (1)', 'putobjectinfridge robot1 peppershaker fridge (1)', 'closeobject robot1 fridge (1)'],
         'parallel_group': 1,
     },

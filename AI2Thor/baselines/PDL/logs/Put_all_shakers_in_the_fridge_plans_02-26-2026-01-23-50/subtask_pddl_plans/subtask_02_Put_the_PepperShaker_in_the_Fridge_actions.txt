@@ -1,0 +1,6 @@
+gotoobject robot1 peppershaker (1)
+pickupobject robot1 peppershaker countertop (1)
+gotoobject robot1 fridge (1)
+openfridge robot1 fridge (1)
+putobjectinfridge robot1 peppershaker fridge (1)
+closeobject robot1 fridge (1)

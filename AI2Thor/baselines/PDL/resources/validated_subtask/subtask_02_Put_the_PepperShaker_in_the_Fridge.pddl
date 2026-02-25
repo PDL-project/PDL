@@ -1,4 +1,4 @@
-(define (problem put-pepper-shaker-in-fridge)
+(define (problem put-peppershaker-in-fridge)
   (:domain allactionrobot)
 
   (:objects

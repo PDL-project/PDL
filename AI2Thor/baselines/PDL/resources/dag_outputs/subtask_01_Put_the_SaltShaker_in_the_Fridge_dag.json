@@ -1,5 +1,5 @@
 {
-  "subtask_name": "subtask_01_Put_the_Salt_Shaker_in_the_Fridge",
+  "subtask_name": "subtask_01_Put_the_SaltShaker_in_the_Fridge",
   "nodes": [
     {
       "id": 0,
@@ -86,14 +86,14 @@
       "dependency_type": "causal"
     },
     {
-      "from_id": 1,
-      "to_id": 4,
-      "dependency_type": "binding"
-    },
-    {
       "from_id": 4,
       "to_id": 5,
       "dependency_type": "causal"
+    },
+    {
+      "from_id": 1,
+      "to_id": 4,
+      "dependency_type": "binding"
     }
   ],
   "parallel_groups": {

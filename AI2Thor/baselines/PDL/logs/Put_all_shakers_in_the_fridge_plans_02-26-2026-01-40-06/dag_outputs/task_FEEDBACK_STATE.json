@@ -1,0 +1,50 @@
+{
+  "1": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 SaltShaker)",
+      "(holding robot1 SaltShaker)",
+      "(at robot1 Fridge)",
+      "(object-open robot1 Fridge)",
+      "(fridge-open Fridge)",
+      "(at-location SaltShaker Fridge)",
+      "(not (holding robot1 SaltShaker))",
+      "(not (inaction robot1))",
+      "(object-close robot1 Fridge)",
+      "(not (fridge-open Fridge))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 saltshaker (1)",
+      "pickupobject robot1 saltshaker countertop (1)",
+      "gotoobject robot1 fridge (1)",
+      "openfridge robot1 fridge (1)",
+      "putobjectinfridge robot1 saltshaker fridge (1)",
+      "closeobject robot1 fridge (1)"
+    ]
+  },
+  "2": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 PepperShaker)",
+      "(holding robot1 PepperShaker)",
+      "(at robot1 Fridge)",
+      "(object-open robot1 Fridge)",
+      "(fridge-open Fridge)",
+      "(at-location PepperShaker Fridge)",
+      "(not (holding robot1 PepperShaker))",
+      "(not (inaction robot1))",
+      "(object-close robot1 Fridge)",
+      "(not (fridge-open Fridge))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 peppershaker (1)",
+      "pickupobject robot1 peppershaker countertop (1)",
+      "gotoobject robot1 fridge (1)",
+      "openfridge robot1 fridge (1)",
+      "putobjectinfridge robot1 peppershaker fridge (1)",
+      "closeobject robot1 fridge (1)"
+    ]
+  }
+}

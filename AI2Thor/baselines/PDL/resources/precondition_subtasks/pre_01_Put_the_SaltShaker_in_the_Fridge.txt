@@ -1,0 +1,68 @@
+# Task Description: Put the SaltShaker in the Fridge.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not holding SaltShaker.
+# 2. Robot not at SaltShaker location.
+# 3. Fridge is initially closed.
+
+# SubTask 1: Put the SaltShaker in the Fridge. 
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: SaltShaker(Location=CounterTop), Fridge(Location=Floor)
+
+GoToObject(robot1, SaltShaker)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 SaltShaker)
+
+PickupObject(robot1, SaltShaker, CounterTop)
+   Preconditions:
+     (at-location SaltShaker CounterTop)
+     (at robot1 SaltShaker)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 SaltShaker)
+
+GoToObject(robot1, Fridge)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 Fridge)
+
+OpenObject(robot1, Fridge)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Fridge)
+   Effects:
+     (object-open robot1 Fridge)
+     (fridge-open Fridge)
+
+PutObjectInFridge(robot1, SaltShaker, Fridge)
+   Preconditions:
+     (holding robot1 SaltShaker)
+     (at robot1 Fridge)
+     (not (inaction robot1))
+     (is-fridge Fridge)
+     (fridge-open Fridge)
+   Effects:
+     (at-location SaltShaker Fridge)
+     (not (holding robot1 SaltShaker))
+     (not (inaction robot1))
+
+CloseObject(robot1, Fridge)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 Fridge)
+     (object-open robot1 Fridge)
+   Effects:
+     (object-close robot1 Fridge)
+     (not (fridge-open Fridge))
+
+Goal condition: 
+(at-location SaltShaker Fridge)
+
+# Task Put the SaltShaker in the Fridge is done.

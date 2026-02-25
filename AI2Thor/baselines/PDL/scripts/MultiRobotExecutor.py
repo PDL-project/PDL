@@ -270,6 +270,13 @@ class MultiRobotExecutor:
         """피드백 모드에서 현재 스레드가 실행 중인 서브태스크 ID (액션 큐에 태깅용)."""
         return self._thread_subtask_id.get(threading.get_ident())
 
+    def _fail_current_subtask(self, error_msg: str):
+        """현재 스레드의 서브태스크를 실패로 표시. 고수준 액션 함수에서 실패 전파 용도."""
+        sid = self._get_current_subtask_id()
+        if sid is not None and not self._subtask_failed.get(sid, False):
+            self._subtask_failed[sid] = True
+            self._subtask_last_error[sid] = error_msg
+
     def _record_agent_success(self, agent_id: int):
         """agent_id의 성공 액션 카운트 +1 (balance metric용)."""
         if 0 <= agent_id < len(self.agent_success_counts):
@@ -1117,10 +1124,7 @@ class MultiRobotExecutor:
                 if other_id == agent_id:
                     continue
 
-                # 상대가 이미 움직이는 중이면(=그 로봇 액션이 큐에 있으면) 방해로 안 봄
-                if self._agent_has_pending_actions(other_id):
-                    continue
-
+                # pending 체크 제거: 두 로봇이 동시에 막힌 경우에도 서로를 blocker로 인식해야 함
                 other_pos = self.controller.last_event.events[other_id].metadata["agent"]["position"]
                 dist = ((my_pos["x"] - other_pos["x"])**2 + (my_pos["z"] - other_pos["z"])**2) ** 0.5
 
@@ -1131,7 +1135,40 @@ class MultiRobotExecutor:
             return best
         except Exception:
             return None
-        
+
+    def _count_nearby_robots(self, agent_id: int, threshold: float = 0.9) -> int:
+        """threshold 이내에 있는 다른 로봇 수를 반환 (pending 여부 무관)."""
+        try:
+            my_pos = self.controller.last_event.events[agent_id].metadata["agent"]["position"]
+            count = 0
+            for other_id in range(self.no_robot):
+                if other_id == agent_id:
+                    continue
+                other_pos = self.controller.last_event.events[other_id].metadata["agent"]["position"]
+                dist = ((my_pos["x"] - other_pos["x"])**2 + (my_pos["z"] - other_pos["z"])**2) ** 0.5
+                if dist < threshold:
+                    count += 1
+            return count
+        except Exception:
+            return 0
+
+    def _try_detour(self, agent_id: int):
+        """2대 이상의 로봇이 진로를 막을 때 큰 우회 기동: 뒤로 빠지고 큰 각도로 돌아 다른 루트로 진입."""
+        # 뒤로 2~3발
+        for _ in range(2):
+            self._enqueue_and_wait({'action': 'MoveBack', 'agent_id': agent_id},
+                                   agent_id=agent_id, timeout=3.0)
+        # 90~150도 랜덤 회전 (좌우 중 선택)
+        angle = 90 + random.randint(0, 60)
+        rot_action = 'RotateRight' if random.random() < 0.5 else 'RotateLeft'
+        self._enqueue_and_wait({'action': rot_action, 'degrees': angle, 'agent_id': agent_id},
+                               agent_id=agent_id, timeout=3.0)
+        # 앞으로 2발 전진 (다른 경로로 진입)
+        for _ in range(2):
+            self._enqueue_and_wait({'action': 'MoveAhead', 'agent_id': agent_id},
+                                   agent_id=agent_id, timeout=3.0)
+        print(f"[Robot{agent_id+1}] Detour: 2 robots blocking, trying alternate route ({rot_action} {angle}°)")
+
     def _issue_yield_request(self, blocking_id: int, requester_id: int, target_object: str) -> bool:
         now = time.time()
         with self.bb_lock:
@@ -1259,10 +1296,6 @@ class MultiRobotExecutor:
                                 del self.yield_requests[blocking_id]
                         continue
 
-                    # 이미 blocker가 뭔가 하느라 바쁘면(=pending) 이번 턴은 스킵
-                    if self._agent_has_pending_actions(blocking_id):
-                        continue
-
                     blocker_pos = self.controller.last_event.events[blocking_id].metadata["agent"]["position"]
                     requester_pos = self.controller.last_event.events[req.requester_id].metadata["agent"]["position"]
                     dist = ((blocker_pos["x"] - requester_pos["x"])**2 + (blocker_pos["z"] - requester_pos["z"])**2) ** 0.5
@@ -1290,22 +1323,19 @@ class MultiRobotExecutor:
                     if not target_position:
                         # reachable position을 찾지 못함 → 직접 MoveBack으로 requester 반대방향 이동
                         req.attempts += 1
-                        if not self._agent_has_pending_actions(blocking_id):
-                            self._enqueue_front([
-                                {"action": "MoveBack", "agent_id": blocking_id},
-                                {"action": "MoveBack", "agent_id": blocking_id},
-                            ])
-                            if req.attempts % self.yield_force_unstick_attempts == 0:
-                                self._force_unstick_blocker(blocking_id)
+                        # pending 여부 무관하게 _enqueue_front로 우선 삽입 (stuck 상황 타개)
+                        self._enqueue_front([
+                            {"action": "MoveBack", "agent_id": blocking_id},
+                            {"action": "MoveBack", "agent_id": blocking_id},
+                        ])
+                        if req.attempts % self.yield_force_unstick_attempts == 0:
+                            self._force_unstick_blocker(blocking_id)
                         req.next_time = now + self.yield_retry_delay_s
                         continue
 
-                    # blocking 로봇에게 1스텝만 이동 명령 (결과 기반 평가)
-                    self._enqueue_action({
-                        "action": "ObjectNavExpertAction",
-                        "position": target_position,
-                        "agent_id": blocking_id
-                    }, front=False)
+                    # blocking 로봇에게 이동 명령: 3발 연속 (첫 발이 회전이어도 나머지로 실제 이동)
+                    nav_step = {"action": "ObjectNavExpertAction", "position": target_position, "agent_id": blocking_id}
+                    self._enqueue_front([nav_step, nav_step, nav_step])
                     req.attempts += 1
                     if req.attempts % self.yield_force_unstick_attempts == 0:
                         self._force_unstick_blocker(blocking_id)
@@ -1386,6 +1416,7 @@ class MultiRobotExecutor:
         dest_obj_id, dest_obj_center = self._find_object_with_center(dest_obj, agent_id=agent_id)
         if not dest_obj_id or not dest_obj_center:
             print(f"[Robot{agent_id+1}] Cannot find {dest_obj}")
+            self._fail_current_subtask(f"GoToObject: cannot find object '{dest_obj}'")
             return False
 
         #print(f"[Robot{agent_id+1}] Target: {dest_obj_id} at {dest_obj_center}")
@@ -1535,12 +1566,24 @@ class MultiRobotExecutor:
                     # 대기 끝: yield가 효과 없었음
                     blocker_id = yield_active_for
                     ineffective_yield_counts[blocker_id] = ineffective_yield_counts.get(blocker_id, 0) + 1
-                    # Yield/회피 관련 로그 비활성화
-                    # print(f"[Robot{agent_id+1}] Yield to Robot{blocker_id+1} ineffective ({ineffective_yield_counts[blocker_id]}x), switching approach")
+                    # 2회 이상 yield 실패 + 주변에 2대 이상 → 우회 기동
+                    if ineffective_yield_counts[blocker_id] >= 2:
+                        nearby_count = self._count_nearby_robots(agent_id, threshold=1.0)
+                        if nearby_count >= 2:
+                            self._try_detour(agent_id)
+                            ineffective_yield_counts[blocker_id] = 0
+                            yield_active_for = None
+                            yield_wait_iters = 0
+                            clost_node_location[0] += 4  # 접근점 크게 건너뜀
+                            max_positions = max(4 * 4, len(self.reachable_positions) // 5)
+                            if clost_node_location[0] >= max_positions:
+                                clost_node_location[0] = 0
+                            crp = closest_node(dest_obj_pos, self.reachable_positions, 1, clost_node_location)
+                            count_since_update = 0
+                            time.sleep(0.1)
+                            continue
                     # 3회 연속 ineffective → 강제로 blocker 이동
                     if ineffective_yield_counts[blocker_id] >= 3:
-                        # Yield/회피 관련 로그 비활성화
-                        # print(f"[Robot{agent_id+1}] Force unsticking Robot{blocker_id+1}")
                         self._force_unstick_blocker(blocker_id)
                         ineffective_yield_counts[blocker_id] = 0
                     yield_active_for = None
@@ -1578,8 +1621,16 @@ class MultiRobotExecutor:
             if count_since_update >= 5 and not need_approach_change:
                 blocking = self._identify_blocking_robot(agent_id, threshold=0.65)
                 if blocking is not None and blocking != agent_id:
-                    need_yield = True
-                    need_approach_change = False  # yield 결과를 먼저 기다림
+                    # 2대 이상이 막고 있으면 yield 대신 즉시 우회 기동
+                    nearby_count = self._count_nearby_robots(agent_id, threshold=0.9)
+                    if nearby_count >= 2:
+                        self._try_detour(agent_id)
+                        skip_amount = 4  # 접근점도 크게 건너뜀
+                        need_approach_change = True
+                        count_since_update = 0
+                    else:
+                        need_yield = True
+                        need_approach_change = False  # yield 결과를 먼저 기다림
                 else:
                     collision_retry_count += 1
                     if collision_retry_count >= max_collision_retries:
@@ -1707,6 +1758,7 @@ class MultiRobotExecutor:
                 # Navigation 복구 로그 비활성화
                 # print(f"[Robot{agent_id+1}] Navigation timeout, giving up")
                 self._clear_agent_queue(agent_id)
+                self._fail_current_subtask(f"GoToObject: navigation timeout for '{dest_obj}' (dist={dist_goal:.2f})")
                 return False
 
         # 네비게이션 성공 시 남은 복구 액션 정리
@@ -1757,6 +1809,7 @@ class MultiRobotExecutor:
         if dist_goal > goal_thresh:
             #print(f"[Robot{agent_id+1}] FAIL to reach {dest_obj}, aborting")
             self._clear_agent_queue(agent_id)
+            self._fail_current_subtask(f"GoToObject: failed to reach '{dest_obj}' (dist={dist_goal:.2f})")
             return False
 
         #print(f"[Robot{agent_id+1}] Reached {dest_obj}")
@@ -1774,6 +1827,7 @@ class MultiRobotExecutor:
         obj_id, _ = self._find_object_with_center(obj_pattern, agent_id=agent_id)
         if not obj_id:
             print(f"[Robot{agent_id+1}] Cannot find {obj_pattern}")
+            self._fail_current_subtask(f"PickupObject: cannot find object '{obj_pattern}'")
             return
 
         #print(f"[Robot{agent_id+1}] Picking up {obj_id}")
@@ -1782,6 +1836,8 @@ class MultiRobotExecutor:
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        if not success:
+            self._fail_current_subtask(f"PickupObject failed or timed out for '{obj_pattern}'")
         # checker: PickupObject (소문자 u — checker 형식에 맞춤)
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "PickUpObject", readable, success)
@@ -1796,6 +1852,7 @@ class MultiRobotExecutor:
             self._set_cached_receptacle(agent_id, recp_pattern, recp_id)
         if not recp_id:
             print(f"[Robot{agent_id+1}] Cannot find receptacle {recp_pattern}")
+            self._fail_current_subtask(f"PutObject: cannot find receptacle '{recp_pattern}'")
             return
 
         #print(f"[Robot{agent_id+1}] Putting on {recp_id}")
@@ -1808,6 +1865,8 @@ class MultiRobotExecutor:
             'objectId': recp_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        if not success:
+            self._fail_current_subtask(f"PutObject failed or timed out for receptacle '{recp_pattern}'")
         # checker: PutObject(receptacle) with inventory_object
         if self.checker is not None:
             recp_readable = self._convert_object_id_to_readable(recp_id)
@@ -1842,6 +1901,8 @@ class MultiRobotExecutor:
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        if not success:
+            self._fail_current_subtask(f"OpenObject failed or timed out for '{obj_pattern}'")
         # checker: OpenObject
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "OpenObject", readable, success)
@@ -1887,6 +1948,8 @@ class MultiRobotExecutor:
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        if not success:
+            self._fail_current_subtask(f"ToggleObjectOn failed or timed out for '{obj_pattern}'")
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "ToggleObjectOn", readable, success)
 
@@ -1907,6 +1970,8 @@ class MultiRobotExecutor:
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        if not success:
+            self._fail_current_subtask(f"ToggleObjectOff failed or timed out for '{obj_pattern}'")
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "ToggleObjectOff", readable, success)
 
@@ -1917,6 +1982,7 @@ class MultiRobotExecutor:
         obj_id = self._find_object_id(obj_pattern)
         if not obj_id:
             print(f"[Robot{agent_id+1}] Cannot find {obj_pattern}")
+            self._fail_current_subtask(f"SliceObject: cannot find object '{obj_pattern}'")
             return
 
         if not self.GoToObject(agent_id, obj_pattern):
@@ -1927,6 +1993,8 @@ class MultiRobotExecutor:
             'objectId': obj_id,
             'agent_id': agent_id
         }, agent_id=agent_id, timeout=5.0)
+        if not success:
+            self._fail_current_subtask(f"SliceObject failed or timed out for '{obj_pattern}'")
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "SliceObject", readable, success)
 
@@ -1984,21 +2052,22 @@ class MultiRobotExecutor:
         atype, _, objs = self._parse_action(action_str)
 
         if atype == "gotoobject" and len(objs) >= 1:
+            # return value 체크: GoToObject 실패 시 이미 _fail_current_subtask 호출됨
             self.GoToObject(agent_id, objs[0])
 
         elif atype == "pickupobject" and len(objs) >= 1:
             if not self.GoToObject(agent_id, objs[0]):
-                return
+                return  # _fail_current_subtask는 GoToObject 내부에서 호출됨
             self.PickupObject(agent_id, objs[0])
 
         elif atype == "putobject" and len(objs) >= 2:
             if not self.GoToObject(agent_id, objs[1]):
-                return
+                return  # _fail_current_subtask는 GoToObject 내부에서 호출됨
             self.PutObject(agent_id, objs[0], objs[1])
 
         elif atype == "putobjectinfridge" and len(objs) >= 1:
             if not self.GoToObject(agent_id, "Fridge"):
-                return
+                return  # _fail_current_subtask는 GoToObject 내부에서 호출됨
             #self.OpenObject(agent_id, "Fridge")
             self.PutObject(agent_id, objs[0], "Fridge")
             #self.CloseObject(agent_id, "Fridge")

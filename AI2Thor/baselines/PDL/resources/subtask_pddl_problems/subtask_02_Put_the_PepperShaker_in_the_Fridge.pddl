@@ -1,30 +1,30 @@
-```lisp
-(define (problem put-saltshaker-in-fridge)
+```pddl
+(define (problem put-peppershaker-in-fridge)
   (:domain allactionrobot)
 
   (:objects
     robot1 - robot
-    saltshaker - object
+    peppershaker - object
     fridge - object
     countertop - object
     floor - object
-    kitchen - object
   )
 
   (:init
     (not (inaction robot1))
     (at robot1 kitchen)
-    (at-location saltshaker countertop)
+    (at-location peppershaker countertop)
     (at-location fridge floor)
 
     (is-fridge fridge)
     (not (fridge-open fridge))
-    (not (holding robot1 saltshaker))
+    (not (holding robot1 peppershaker))
   )
 
   (:goal (and
-    (at-location saltshaker fridge)
-    (not (holding robot1 saltshaker))
+    (at-location peppershaker fridge)
+    (not (holding robot1 peppershaker))
+    (object-close robot1 fridge)
   ))
 )
 ```

@@ -1,15 +1,15 @@
-# Task Description: Put the Pepper Shaker in the Fridge.
+# Task Description: Put the PepperShaker in the Fridge.
 
 # GENERAL TASK DECOMPOSITION 
 # Decompose and parallel subtasks where ever possible
 # Independent subtasks:
 
 # Initial condition analyze due to previous subtask:
-#1. Robot not at pepper shaker location
-#2. Robot not holding pepper shaker
+#1. Robot not at PepperShaker location
+#2. Robot not holding PepperShaker
 #3. Fridge is fridge, and initially closed
 
-# SubTask 2: Put the Pepper Shaker in the Fridge. 
+# SubTask 2: Put the PepperShaker in the Fridge. 
     Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
     Related Objects: PepperShaker(Location=CounterTop), Fridge(Location=Floor)
 
@@ -33,11 +33,10 @@ GoToObject(robot1, Fridge)
    Effects:
      (at robot1 Fridge)
 
-OpenFridge(robot1, Fridge)
+OpenObject(robot1, Fridge)
    Preconditions:
      (not (inaction robot1))
      (at robot1 Fridge)
-     (is-fridge Fridge)
    Effects:
      (object-open robot1 Fridge)
      (fridge-open Fridge)
@@ -54,12 +53,11 @@ PutObjectInFridge(robot1, PepperShaker, Fridge)
      (not (holding robot1 PepperShaker))
      (not (inaction robot1))
 
-CloseFridge(robot1, Fridge)
+CloseObject(robot1, Fridge)
    Preconditions:
      (not (inaction robot1))
      (at robot1 Fridge)
      (object-open robot1 Fridge)
-     (is-fridge Fridge)
    Effects:
      (object-close robot1 Fridge)
      (not (fridge-open Fridge))
@@ -67,4 +65,4 @@ CloseFridge(robot1, Fridge)
 Goal condition: 
 (at-location PepperShaker Fridge)
 
-# Task Put the Pepper Shaker in the Fridge is done.
+# Task Put the PepperShaker in the Fridge is done.

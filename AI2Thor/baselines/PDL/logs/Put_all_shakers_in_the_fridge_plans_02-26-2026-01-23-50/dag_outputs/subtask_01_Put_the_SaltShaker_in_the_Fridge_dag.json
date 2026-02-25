@@ -1,23 +1,23 @@
 {
-  "subtask_name": "subtask_02_Put_the_Pepper_Shaker_in_the_Fridge",
+  "subtask_name": "subtask_01_Put_the_SaltShaker_in_the_Fridge",
   "nodes": [
     {
       "id": 0,
-      "action": "gotoobject robot1 peppershaker (1)",
+      "action": "gotoobject robot1 saltshaker (1)",
       "action_type": "gotoobject",
       "robot": "robot1",
       "objects": [
-        "peppershaker"
+        "saltshaker"
       ],
       "parallel_group": 0
     },
     {
       "id": 1,
-      "action": "pickupobject robot1 peppershaker countertop (1)",
+      "action": "pickupobject robot1 saltshaker countertop (1)",
       "action_type": "pickupobject",
       "robot": "robot1",
       "objects": [
-        "peppershaker",
+        "saltshaker",
         "countertop"
       ],
       "parallel_group": 1
@@ -44,11 +44,11 @@
     },
     {
       "id": 4,
-      "action": "putobjectinfridge robot1 peppershaker fridge (1)",
+      "action": "putobjectinfridge robot1 saltshaker fridge (1)",
       "action_type": "putobjectinfridge",
       "robot": "robot1",
       "objects": [
-        "peppershaker",
+        "saltshaker",
         "fridge"
       ],
       "parallel_group": 4
