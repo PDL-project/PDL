@@ -1,0 +1,3 @@
+openobject robot1 drawer1 (1)
+drophandobject robot1 knife drawer1 (1)
+closeobject robot1 drawer1 (1)

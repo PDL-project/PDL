@@ -199,6 +199,8 @@ def assign_subtasks_cp_sat(
     # ↓↓↓ 병렬 그룹 인식 파라미터
     parallel_groups: Optional[Dict[str, List[int]]] = None,
     parallel_penalty_weight: int = 500,
+    # ↓↓↓ 강제 할당 (예: 로봇이 이미 물건을 들고 있어 해당 서브태스크를 반드시 맡아야 하는 경우)
+    forced_assignments: Optional[Dict[int, int]] = None,  # {subtask_id: robot_id}
 ) -> Dict[int, int]:
     """
     CP-SAT 기반 subtask -> robot assignment.
@@ -210,6 +212,7 @@ def assign_subtasks_cp_sat(
       1) Each subtask assigned to exactly one robot
       2) Mass feasibility (required_mass <= capacity)
       3) Binding pairs: same robot must do both subtasks
+      4) Forced assignments: specific subtask → specific robot (e.g., holding constraint)
 
     Objective (우선순위):
       0순위) 병렬 그룹 분산 — 같은 그룹 내 subtask을 서로 다른 로봇에 배정 (weight=500)
@@ -259,6 +262,14 @@ def assign_subtasks_cp_sat(
             continue
         for rid in robot_ids:
             model.Add(x[(a, rid)] == x[(b, rid)])
+
+    # 4) forced assignments (예: 로봇이 이미 물건을 들고 있어 반드시 해당 서브태스크를 맡아야 함)
+    if forced_assignments:
+        for sid, forced_rid in forced_assignments.items():
+            sid = int(sid)
+            if sid not in sids or forced_rid not in robot_ids:
+                continue
+            model.Add(x[(sid, forced_rid)] == 1)
 
     # ---- distance cost (거리 비용) ----
     # 로봇 위치 → 서브태스크 첫 번째 대상 오브젝트 위치까지의 유클리드 거리를 soft cost로 반영

@@ -1,0 +1,148 @@
+{
+  "task_name": "task",
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Store_the_Fork",
+      "objects": [
+        "robot1",
+        "fork",
+        "drawer1",
+        "counterTop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not holding any utensils.",
+        "Robot is not at utensil locations.",
+        "Fork is on the counterTop.",
+        "Drawer is on the floor."
+      ],
+      "effects": [
+        "Fork is stored in the drawer.",
+        "Drawer is closed.",
+        "Robot is not holding the fork."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Store_the_Knife",
+      "objects": [
+        "robot1",
+        "knife",
+        "drawer1",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Knife is on the countertop.",
+        "Drawer is on the floor.",
+        "Robot is on the floor.",
+        "Robot is not holding the knife."
+      ],
+      "effects": [
+        "Knife is stored in the drawer.",
+        "Drawer is closed.",
+        "Robot is not holding the knife."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Store_the_Spoon",
+      "objects": [
+        "robot1",
+        "spoon",
+        "drawer1",
+        "countertop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action.",
+        "Robot is at the kitchen.",
+        "Spoon is on the countertop.",
+        "Drawer is on the floor.",
+        "Robot is close to the drawer.",
+        "Robot is not holding the spoon."
+      ],
+      "effects": [
+        "Spoon is stored in the drawer.",
+        "Robot is close to the drawer."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Store_the_ButterKnife",
+      "objects": [
+        "robot1",
+        "butterKnife",
+        "drawer1",
+        "counterTop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the floor",
+        "ButterKnife is on the counterTop",
+        "Drawer is on the floor",
+        "Robot is close to the drawer",
+        "Robot is not holding the butterKnife"
+      ],
+      "effects": [
+        "ButterKnife is stored in the drawer",
+        "Robot is close to the drawer"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: drawer1"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: drawer1"
+    },
+    {
+      "from_id": 1,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: drawer1"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: drawer1"
+    },
+    {
+      "from_id": 2,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: drawer1"
+    },
+    {
+      "from_id": 3,
+      "to_id": 4,
+      "dependency_type": "resource",
+      "reason": "Shared target receptacle: drawer1"
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ],
+    "2": [
+      3
+    ],
+    "3": [
+      4
+    ]
+  }
+}

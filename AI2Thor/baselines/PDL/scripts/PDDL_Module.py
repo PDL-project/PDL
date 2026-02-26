@@ -221,9 +221,13 @@ class FileProcessor:
         os.makedirs(self.precondition_subtasks_path, exist_ok=True)
 
         os.makedirs(self.subtask_path, exist_ok=True)
-        os.makedirs(self.validated_subtask_path, exist_ok=True) 
+        os.makedirs(self.validated_subtask_path, exist_ok=True)
         os.makedirs(self.each_run_path, exist_ok=True)
-    
+
+        # 재계획 versioned 폴더 관리용
+        self._original_paths = None   # 최초 switch 전 원본 경로 저장
+        self._current_replan_dir = None  # 현재 사용 중인 replan 폴더
+
     def read_file(self, file_path: str) -> str:
         """
         텍스트 파일을 읽어서 문자열로 반환 함수
@@ -245,7 +249,46 @@ class FileProcessor:
                 file.write(content)
         except Exception as e:
             raise PDDLError(f"파일 생성 실패 {file_path}: {str(e)}")
-    
+
+    def switch_to_dir(self, replan_base: str) -> None:
+        """재계획 전용 versioned 폴더로 파일 경로를 전환.
+
+        현재 4개 경로의 파일들을 새 폴더로 복사한 뒤 경로 속성을 업데이트한다.
+        복사할 때 이미 존재하는 파일은 덮어쓰지 않는다.
+        연속 호출 시 직전 replan 폴더의 파일을 다음 replan 폴더로 이어 복사하여
+        최신 plan 파일이 항상 새 폴더에 포함되도록 한다.
+        """
+        path_map = {
+            'subtask_pddl_problems_path': 'subtask_pddl_problems',
+            'subtask_pddl_plans_path':    'subtask_pddl_plans',
+            'precondition_subtasks_path': 'precondition_subtasks',
+            'validated_subtask_path':     'validated_subtask',
+        }
+
+        # 현재 경로 스냅샷 (복사 원본)
+        current_paths = {attr: getattr(self, attr) for attr in path_map}
+
+        # 최초 switch 시 original 경로 보존
+        if self._original_paths is None:
+            self._original_paths = dict(current_paths)
+
+        self._current_replan_dir = replan_base
+
+        for attr, subdir in path_map.items():
+            new_path = os.path.join(replan_base, subdir)
+            os.makedirs(new_path, exist_ok=True)
+
+            # 현재 폴더의 파일들을 새 폴더로 복사 (덮어쓰지 않음)
+            src_path = current_paths[attr]
+            if os.path.exists(src_path):
+                for fname in os.listdir(src_path):
+                    src = os.path.join(src_path, fname)
+                    dst = os.path.join(new_path, fname)
+                    if os.path.isfile(src) and not os.path.exists(dst):
+                        shutil.copy2(src, dst)
+
+            setattr(self, attr, new_path)
+
     def normalize_pddl(self, text: str) -> str: #이거 함수 지우면 안댐!@@@
         """
         LLM 출력이 ```pddl ... ``` 같은 마크다운/잡텍스트를 포함하는 경우가 많아서
@@ -499,6 +542,16 @@ class TaskManager:
 
         self.objects_ai = None
 
+        # 재계획 versioned 폴더 카운터 (replan_1, replan_2, ...)
+        self._replan_counter = 0
+
+    def _create_next_replan_dir(self) -> str:
+        """재계획 시도 번호를 증가시키고 전용 폴더 경로를 반환."""
+        self._replan_counter += 1
+        replan_dir = os.path.join(self.resources_path, f"replan_{self._replan_counter}")
+        os.makedirs(replan_dir, exist_ok=True)
+        return replan_dir
+
     def _fb_log_header(self, title: str):
         print(f"\n{'='*60}")
         print(f"[Feedback] {title}")
@@ -539,8 +592,18 @@ class TaskManager:
 
             except Exception as e:
                 print(f"[CLEAN ERROR] Failed to access directory {directory}: {e}")
-    
-    def log_results(self, task: str, idx: int, available_robots: List[dict], 
+
+        # 이전 실행에서 생성된 replan_* 폴더 전부 제거
+        for entry in os.listdir(self.resources_path):
+            if entry.startswith("replan_"):
+                replan_path = os.path.join(self.resources_path, entry)
+                if os.path.isdir(replan_path):
+                    try:
+                        shutil.rmtree(replan_path)
+                    except Exception as e:
+                        print(f"[CLEAN ERROR] Failed to remove {replan_path}: {e}")
+
+    def log_results(self, task: str, idx: int, available_robots: List[dict],
                    gt_test_tasks: List[str], trans_cnt_tasks: List[int], 
                    min_trans_cnt_tasks: List[int], objects_ai: str,
                    bddl_file_path: Optional[str] = None):
@@ -862,21 +925,20 @@ class TaskManager:
                         #print(f"[Feedback] Immediate replan triggered by subtask {sid} (retry {count+1}/{max_replan_retries})")
                         replan_retry_per_subtask[sid] = count + 1
 
-                        current_results = dict(executor._subtask_results)
                         current_group_sids: set = set()
                         for _gid, _sids in executor.parallel_groups.items():
                             if sid in _sids:
                                 current_group_sids = set(_sids)
                                 break
-                        precond_effects = load_subtask_precond_effects(self.base_path)
-                        effects_for_success = {
-                            s: precond_effects.get(s, [])
-                            for s, r in current_results.items()
-                            if r.success and s in current_group_sids
+                        current_results = {
+                            s: r for s, r in executor._subtask_results.items()
+                            if s in current_group_sids
                         }
-                        sync_execution_results_to_store(
-                            state_store, current_results, effects_by_subtask_id=effects_for_success
-                        )
+                        # 방금 실패한 서브태스크는 반드시 포함
+                        current_results[sid] = failed_result
+                        # replan 중간 동기화에서는 stale sid-effect 매핑을 피하기 위해
+                        # success/failure 상태만 반영한다.
+                        sync_execution_results_to_store(state_store, current_results)
 
                         replan_result = self.run_feedback_replan(
                             task_idx=task_idx,
@@ -914,15 +976,8 @@ class TaskManager:
                         state_store=state_store,
                         on_subtask_failed=_on_subtask_failed,
                     )
-                    precond_effects = load_subtask_precond_effects(self.base_path)
-                    effects_for_success = {
-                        sid: precond_effects.get(sid, [])
-                        for sid, r in results.items()
-                        if r.success
-                    }
-                    sync_execution_results_to_store(
-                        state_store, results, effects_by_subtask_id=effects_for_success
-                    )
+                    # 종료 동기화도 status 중심으로 반영 (sid remap 이후 효과 오염 방지)
+                    sync_execution_results_to_store(state_store, results)
                     dropped = getattr(executor, '_dropped_subtasks', set())
                     failed = [sid for sid, r in results.items() if not r.success and sid not in dropped]
                     if not failed:
@@ -946,6 +1001,7 @@ class TaskManager:
     def _load_plan_actions_by_subtask_id(self) -> Dict[int, List[str]]:
         plans_dir = self.file_processor.subtask_pddl_plans_path
         out: Dict[int, List[str]] = {}
+        candidates: Dict[int, List[Tuple[int, int, float, List[str]]]] = {}
 
         for fname in os.listdir(plans_dir):
             if not fname.endswith("_actions.txt"):
@@ -954,9 +1010,33 @@ class TaskManager:
             if not m:
                 continue
             sid = int(m.group(1))
-            with open(os.path.join(plans_dir, fname), "r") as f:
-                out[sid] = [ln.strip() for ln in f.readlines() if ln.strip()]
+            fpath = os.path.join(plans_dir, fname)
+            with open(fpath, "r") as f:
+                actions = [ln.strip() for ln in f.readlines() if ln.strip()]
+            score = (
+                1 if actions else 0,             # non-empty plan 우선
+                1 if "_REPLAN" in fname else 0,  # REPLAN 우선
+                os.path.getmtime(fpath),         # 최신 파일 우선
+            )
+            candidates.setdefault(sid, []).append((*score, actions))
+
+        for sid, vals in candidates.items():
+            vals.sort(key=lambda v: (v[0], v[1], v[2]), reverse=True)
+            out[sid] = vals[0][3]
         return out
+
+    def _strip_example_sections(self, text: str) -> str:
+        if not text:
+            return ""
+        # 모델이 예시 블록을 그대로 복사한 경우 제거
+        text = re.sub(
+            r"(?is)===\s*EXAMPLE OUTPUT FORMAT START\s*===.*?===\s*EXAMPLE OUTPUT FORMAT END\s*===",
+            "",
+            text,
+        )
+        text = re.sub(r"(?im)^\s*===\s*EXAMPLE OUTPUT FORMAT START\s*===\s*$", "", text)
+        text = re.sub(r"(?im)^\s*===\s*EXAMPLE OUTPUT FORMAT END\s*===\s*$", "", text)
+        return text.strip()
 
 
     def _generate_decomposed_plan(self, task: str, domain_content: str, robots: List[dict], objects_ai: str) -> str:
@@ -1091,9 +1171,23 @@ class TaskManager:
           - [] (empty): LLM이 drop 결론 → drop 처리
           - [dict, ...]: 파싱된 서브태스크 목록
         """
-        text = (redecompose_text or "").strip()
+        text = self._strip_example_sections((redecompose_text or "").strip())
         if not text:
             return []
+
+        # # Failure Reason / # Action Plan 추출 (SubTask 헤더 앞에 위치, raw_block에는 포함 안됨)
+        # 다음 # 헤더가 나올 때까지를 해당 섹션으로 간주
+        _fr_m = re.search(
+            r"(?im)^#\s*Failure\s+Reason\s*$\s*(.*?)(?=^#+\s|\Z)",
+            text, re.DOTALL,
+        )
+        global_failure_reason = _fr_m.group(1).strip() if _fr_m else ""
+
+        _ap_m = re.search(
+            r"(?im)^#\s*Action\s+Plan\s*$\s*(.*?)(?=^#+\s|\Z)",
+            text, re.DOTALL,
+        )
+        global_action_plan = _ap_m.group(1).strip() if _ap_m else ""
 
         # Step 1. 표준 포맷 파싱 ("# Sub Task N: ...")
         standard = self._decomposed_plan_to_subtasks(text)
@@ -1109,36 +1203,61 @@ class TaskManager:
 
         if headers:
             subtasks = []
+            used_ids = set()
             max_base_id = max(tasks_to_replan) if tasks_to_replan else 0
-            new_id_offset = 0  # tasks_to_replan 범위 초과 시 max_base_id*10+N 형태로 생성
+            next_extra_id = max_base_id + 1
+            local_id_map: Dict[int, int] = {}
+
+            def alloc_fresh_id() -> int:
+                nonlocal next_extra_id
+                for tid in tasks_to_replan:
+                    if tid not in used_ids:
+                        used_ids.add(tid)
+                        return tid
+                while next_extra_id in used_ids:
+                    next_extra_id += 1
+                sid = next_extra_id
+                used_ids.add(sid)
+                next_extra_id += 1
+                return sid
 
             for i, h in enumerate(headers):
                 start = h.start()
                 end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
                 body_block = text[start:end].strip()
 
-                # ID 배정 전략:
-                # 1) 헤더 번호가 tasks_to_replan 안에 있으면 그대로 사용
-                # 2) 헤더 번호가 있지만 tasks_to_replan에 없음 → tasks_to_replan[i] 또는 합성 ID
-                # 3) 헤더 번호 없음 → tasks_to_replan[i] 또는 합성 ID
                 sid_str = h.group(1)
+                sub_id = None
                 if sid_str:
                     parsed_id = int(sid_str)
-                    if parsed_id in tasks_to_replan:
+                    if parsed_id in tasks_to_replan and parsed_id not in used_ids:
                         sub_id = parsed_id
-                    elif i < len(tasks_to_replan):
+                        used_ids.add(sub_id)
+                    elif parsed_id in local_id_map and local_id_map[parsed_id] not in used_ids:
+                        sub_id = local_id_map[parsed_id]
+                        used_ids.add(sub_id)
+                    elif 1 <= parsed_id <= len(tasks_to_replan):
+                        mapped = tasks_to_replan[parsed_id - 1]
+                        local_id_map[parsed_id] = mapped
+                        if mapped not in used_ids:
+                            sub_id = mapped
+                            used_ids.add(sub_id)
+                    elif i < len(tasks_to_replan) and tasks_to_replan[i] not in used_ids:
                         sub_id = tasks_to_replan[i]
+                        used_ids.add(sub_id)
                     else:
-                        new_id_offset += 1
-                        sub_id = max_base_id * 10 + new_id_offset
+                        sub_id = alloc_fresh_id()
                 else:
-                    if i < len(tasks_to_replan):
+                    if i < len(tasks_to_replan) and tasks_to_replan[i] not in used_ids:
                         sub_id = tasks_to_replan[i]
+                        used_ids.add(sub_id)
                     else:
-                        new_id_offset += 1
-                        sub_id = max_base_id * 10 + new_id_offset
+                        sub_id = alloc_fresh_id()
 
                 title = h.group(2).strip()
+                body_lower = body_block.lower()
+                if "placeholder for any subsequent tasks" in body_lower or "placeholder" in title.lower():
+                    continue
 
                 # Skills / Objects 추출: 마크다운 볼드(**...**) 형식도 처리
                 skills, objects = [], []
@@ -1163,6 +1282,19 @@ class TaskManager:
                         if o.strip().strip("*").strip()
                     ]
 
+                has_action_like = bool(
+                    re.search(
+                        r"(?im)^\s*(?:\d+[\.\)]\s+)?(?:\*+)?(?:GoToObject|PickupObject|PutObject|OpenObject|CloseObject|ToggleObject|SliceObject)\s*[\(\s]",
+                        body_block,
+                    )
+                    or re.search(
+                        r"(?im)^\s*\((?:gotoobject|pickupobject|putobject|openobject|closeobject|toggleobject|sliceobject)\s+",
+                        body_block,
+                    )
+                )
+                if not (skills or objects or has_action_like):
+                    continue
+
                 subtasks.append({
                     "id": sub_id,
                     "title": title,
@@ -1170,6 +1302,8 @@ class TaskManager:
                     "objects": objects,
                     "raw_block": body_block,
                     "initial_conditions": "",
+                    "failure_reason": global_failure_reason,
+                    "action_plan": global_action_plan,
                 })
             return subtasks
 
@@ -1223,6 +1357,8 @@ class TaskManager:
             "objects": objects,
             "raw_block": text,
             "initial_conditions": "",
+            "failure_reason": global_failure_reason,
+            "action_plan": global_action_plan,
         }]
 
     def extract_domain_header(self, domain_content: str) -> str:
@@ -1357,6 +1493,13 @@ class TaskManager:
                 else:
                     messages = [{"role": "user", "content": prompt}]
                     _, text = self.llm.query_model(messages, self.gpt_version, max_tokens=2000, frequency_penalty=0.0)
+                text = self._strip_example_sections(text)
+                # 여러 Task Description이 섞이면 마지막(실제 생성본)만 사용
+                low = text.lower()
+                marker = "# task description:"
+                if low.count(marker) > 1:
+                    last = low.rfind(marker)
+                    text = text[last:].strip()
                 result = {
                     "subtask_id": sub_id,
                     "subtask_title": title,
@@ -1371,6 +1514,163 @@ class TaskManager:
 
         except Exception as e:
             raise PDDLError(f"Error generating subtask PDDL problems: {str(e)}") from e
+
+    def _generate_reprecondition_subtasks(self, parsed_subtasks: List[Dict[str, Any]], domain_content: str, robots: List[dict], objects_ai: str, context=None) -> List[Dict[str, Any]]:
+        """
+        서브태스크 리스트를 입력받아, 각 서브태스크별로 LLM을 호출해 PDDL problem을 위한 precondition과 goal을 추가해 반환해주는 함수
+        context가 있으면 실패 원인 + 완료된 액션 + 재분해 분석을 프롬프트에 포함.
+        """
+        results: List[Dict[str, Any]] = []
+
+        try:
+            # 스킬/오브젝트 목록은 프롬프트 안정성을 위해 정렬
+            skills_sorted = sorted(set([s.strip() for s in robots if s and s.strip()]))
+
+            problem_example_prompt_path = os.path.join(self.base_path, "data", "pythonic_plans", f"chaerin_pddl_train_repre.py")
+            problem_example_prompt = self.file_processor.read_file(problem_example_prompt_path)
+
+            # context에서 공통 실패 정보 추출
+            failure_reason = getattr(context, "failure_reason", None) if context else None
+            completed_actions = getattr(context, "completed_actions", None) if context else None
+            failed_subtask_id = getattr(context, "failed_subtask_id", None) if context else None
+
+            for st in parsed_subtasks:
+                sub_id = st.get("id")
+                title = st.get("title", "").strip()
+                st_skills = st.get("skills", [])
+                st_objects = st.get("objects", [])
+                raw_block = st.get("raw_block", "")        # 재분해 LLM 출력 (수정된 액션시퀀스 포함)
+                st_failure_reason = st.get("failure_reason", "")  # 파서가 추출한 # Failure Reason
+                st_action_plan    = st.get("action_plan", "")     # 파서가 추출한 # Action Plan
+
+                sub_domain = self.build_subdomain_for_skills(domain_content, st_skills)
+
+                prompt = ""
+                prompt += "You are a Robot task-to-action expander.\n"
+                prompt += "Your job is to EXPAND the given task decomposition into detailed action-level plans using a PDDL-style description.\n"
+
+                # 실패 컨텍스트 주입: 이번이 재플래닝인 경우 PDDL init 상태를 올바르게 설정하는 데 필수
+                has_replan_context = any([failure_reason, st_failure_reason, st_action_plan, completed_actions, raw_block])
+                if has_replan_context:
+                    prompt += "\n## REPLANNING CONTEXT (use this to set correct :init state)\n"
+
+                    # 1) 실제 에러 메시지 (context에서)
+                    if sub_id == failed_subtask_id and failure_reason:
+                        prompt += f"### Execution Error\n{failure_reason}\n\n"
+
+                    # 2) LLM이 분석한 실패 원인 (# Failure Reason 섹션)
+                    if st_failure_reason:
+                        prompt += f"### Failure Analysis (from redecomposition LLM)\n{st_failure_reason}\n\n"
+
+                    # 3) LLM이 제시한 복구 계획 (# Action Plan 섹션)
+                    if st_action_plan:
+                        prompt += f"### Recovery Plan (from redecomposition LLM)\n{st_action_plan}\n\n"
+
+                    # 5) 재분해 서브태스크 전체 블록 (수정된 액션시퀀스 + 각 액션별 precondition/effect)
+                    if raw_block:
+                        prompt += (
+                            f"### Redecomposed Subtask Detail\n"
+                            f"(includes corrected action sequence with explicit preconditions/effects per step)\n"
+                            f"{raw_block}\n\n"
+                        )
+
+                    # 6) 리셉터클 수납 상태: PDDL 이름 명시 (drawer1, drawer2 ...)
+                    ctx_executor = getattr(context, "executor", None) if context else None
+                    if ctx_executor is not None and ctx_executor.controller is not None:
+                        try:
+                            all_scene_objs = ctx_executor.controller.last_event.metadata["objects"]
+                            type_counter_pre: Dict[str, int] = {}
+                            recp_pddl_info = []
+                            for obj in all_scene_objs:
+                                if not obj.get("receptacle", False):
+                                    continue
+                                recp_type = obj.get("objectType", "")
+                                if not recp_type:
+                                    continue
+                                type_counter_pre[recp_type] = type_counter_pre.get(recp_type, 0) + 1
+                                pddl_name = f"{recp_type.lower()}{type_counter_pre[recp_type]}"
+                                contained = obj.get("receptacleObjectIds", [])
+                                if contained:
+                                    contents_str = ", ".join(c.split("|")[0] for c in contained)
+                                    recp_pddl_info.append(
+                                        f"  - PDDL name '{pddl_name}': OCCUPIED — contains [{contents_str}] — ❌ DO NOT use"
+                                    )
+                                else:
+                                    recp_pddl_info.append(
+                                        f"  - PDDL name '{pddl_name}': EMPTY — ✓ available for placement"
+                                    )
+                            if recp_pddl_info:
+                                prompt += "### Receptacle Availability (CRITICAL — use exact PDDL names in (:objects) and (:goal))\n"
+                                prompt += "The PDDL name (e.g. 'drawer2') is the EXACT name to write in the problem file.\n"
+                                prompt += "If a receptacle is OCCUPIED and placement failed, you MUST choose a different EMPTY one.\n"
+                                prompt += "\n".join(recp_pddl_info) + "\n\n"
+                        except Exception:
+                            pass
+
+                    prompt += (
+                        "CRITICAL: Use the above context to determine the EXACT :init state for the PDDL problem.\n"
+                        "In particular:\n"
+                        "  - If the robot is HOLDING an object, put (holding robot1 <obj>) in :init and do NOT include (not (holding robot1 <obj>)).\n"
+                        "  - If the drawer/receptacle is already OPEN, put (object-open robot1 <receptacle>) in :init.\n"
+                        "  - If the target receptacle is FULL (occupied), pick a DIFFERENT empty receptacle.\n"
+                        "  - Reflect any partial completion effects from the completed actions above.\n\n"
+                    )
+
+                prompt += f"CURRENT ENVIRONMENT OBJECT LIST (ground-truth):\n{objects_ai}\n\n"
+                prompt += "This is the ONLY set of objects that exist in the current environment.\n"
+
+                prompt += f"OBJECTS SELECTED FROM THE PREVIOUS STEP (for this subtask):\n{st_objects}\n\n"
+                prompt += "These are the objects that were judged to be relevant/needed for this subtask.\n"
+                prompt += "You should prioritize using these objects when constructing the PDDL problem.\n"
+                prompt += "However, you may also use other objects from CURRENT ENVIRONMENT OBJECT LIST if needed.\n\n\n"
+
+                prompt += f"AVAILABLE ROBOT SKILLS (action names):\n{robots}\n\n"
+                prompt += "These are the ONLY actions you are allowed to use.\n"
+
+                prompt += f"SKILLS REQUIRED FOR THIS SUBTASK (selected from the previous step):{st_skills}\n"
+                prompt += "Your generated PDDL problem must be solvable using ONLY these skills.\n\n\n"
+
+                prompt += f"DOMAIN:\n{domain_content}\n\n"
+                prompt += "There are the domain content containing ONLY the actions you are allowed/required to use.\n"
+                prompt += "Use this domain as the sole reference for predicates, action preconditions/effects.\n"
+
+                prompt += "OUTPUT FORMAT CONSTRAINT:\n"
+                prompt += "YOUR OUTPUT MUST BE ONLY the following expanded text (no markdown, no explanations)\n\n"
+
+                prompt += "=== EXAMPLE OUTPUT FORMAT START ===\n"
+                prompt += problem_example_prompt
+                prompt += "\n=== EXAMPLE OUTPUT FORMAT END ===\n\n"
+                prompt += "\n\n=== SUBTASK TO SOLVE ===\n"
+
+                prompt += f"{st}\n\n"  
+                
+                if "gpt" not in self.gpt_version:
+                    _, text = self.llm.query_model(prompt, self.gpt_version, max_tokens=2000, stop=["def"], frequency_penalty=0.0)
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+                    _, text = self.llm.query_model(messages, self.gpt_version, max_tokens=2000, frequency_penalty=0.0)
+                text = self._strip_example_sections(text)
+                # 여러 Task Description이 섞이면 마지막(실제 생성본)만 사용
+                low = text.lower()
+                marker = "# task description:"
+                if low.count(marker) > 1:
+                    last = low.rfind(marker)
+                    text = text[last:].strip()
+                result = {
+                    "subtask_id": sub_id,
+                    "subtask_title": title,
+                    "skills": st_skills,
+                    "objects": st_objects,
+                    "pre_goal_text": text,
+                    "raw_llm_output": text,
+                }
+                results.append(result)
+
+            return results
+
+        except Exception as e:
+            raise PDDLError(f"Error generating subtask PDDL problems: {str(e)}") from e
+
 
     def _generate_subtask_pddl_problems(self, parsed_subtasks: List[Dict[str, Any]], domain_content: str, robots: List[dict], objects_ai: str) -> List[Dict[str, Any]]:
         """
@@ -1477,6 +1777,171 @@ class TaskManager:
         except Exception as e:
             raise PDDLError(f"Error generating subtask PDDL problems: {str(e)}") from e
 
+    def _regenerate_subtask_pddl_problems(self, parsed_subtasks: List[Dict[str, Any]], domain_content: str, robots: List[dict], objects_ai: str, context=None) -> List[Dict[str, Any]]:
+        """
+        서브태스크 리스트를 입력받아, 각 서브태스크별로 LLM을 호출해 PDDL problem을 생성하고 반환해주는 함수
+
+        출력:
+            List[dict] 형태로 서브태스크별 PDDL problem 결과 반환
+            [
+              {
+                "task_index": 0,
+                "subtask_id": 1,
+                "subtask_title": "...",
+                "skills": [...],
+                "objects": [...],
+                "problem_name": "...",
+                "problem_text": "(define (problem ...))",
+                "raw_llm_output": "..."
+              },
+              ...
+            ]
+        """
+        results: List[Dict[str, Any]] = []
+
+        try:
+            # 스킬/오브젝트 목록은 프롬프트 안정성을 위해 정렬
+            skills_sorted = sorted(set([s.strip() for s in robots if s and s.strip()]))
+
+            problem_example_prompt_path = os.path.join(self.base_path, "data", "pythonic_plans", f"chaerin_pddl_train_task_pddl_problem.py")
+            problem_example_prompt = self.file_processor.read_file(problem_example_prompt_path)
+
+
+            # context에서 공통 실패 정보 추출
+            failure_reason = getattr(context, "failure_reason", None) if context else None
+            completed_actions = getattr(context, "completed_actions", None) if context else None
+            failed_subtask_id = getattr(context, "failed_subtask_id", None) if context else None
+
+            for st in parsed_subtasks:
+                sub_id = st.get("subtask_id")
+                title = st.get("subtask_title", "").strip()
+                st_skills = st.get("skills", [])
+                st_objects = st.get("objects", [])
+
+                sub_domain = self.build_subdomain_for_skills(domain_content, st_skills)
+
+                prompt = ""
+                prompt += "You are a PDDL problem generation expert for robot manipulation tasks.\n"
+                prompt += "Your job is to generate a valid PDDL *problem* file for the given subtask.\n\n\n"
+
+                # 실패 컨텍스트 주입: 이번이 재플래닝인 경우 PDDL init 상태를 올바르게 설정하는 데 필수
+                has_replan_context = any([failure_reason, completed_actions])
+                if has_replan_context:
+                    prompt += "\n## REPLANNING CONTEXT (use this to set correct :init state)\n"
+
+                    # 1) 실제 에러 메시지 (context에서)
+                    if sub_id == failed_subtask_id and failure_reason:
+                        prompt += f"### Execution Error\n{failure_reason}\n\n"
+
+                    # 2) 리셉터클 수납 상태: 꽉 찬 서랍은 피하고 빈 서랍을 선택하도록
+                    # PDDL 이름 (drawer1, drawer2 ...) 을 명시적으로 매핑해서 LLM에 전달
+                    ctx_executor = getattr(context, "executor", None)
+                    if ctx_executor is not None and ctx_executor.controller is not None:
+                        try:
+                            all_scene_objs = ctx_executor.controller.last_event.metadata["objects"]
+                            # object_dict와 동일한 방식으로 번호 부여 (objectId 등장 순서)
+                            type_counter: Dict[str, int] = {}
+                            recp_pddl_info = []
+                            for obj in all_scene_objs:
+                                if not obj.get("receptacle", False):
+                                    continue
+                                recp_type = obj.get("objectType", "")
+                                if not recp_type:
+                                    continue
+                                type_counter[recp_type] = type_counter.get(recp_type, 0) + 1
+                                pddl_name = f"{recp_type.lower()}{type_counter[recp_type]}"
+                                contained = obj.get("receptacleObjectIds", [])
+                                if contained:
+                                    contents_str = ", ".join(c.split("|")[0] for c in contained)
+                                    recp_pddl_info.append(
+                                        f"  - PDDL name '{pddl_name}': OCCUPIED — contains [{contents_str}] — ❌ DO NOT use"
+                                    )
+                                else:
+                                    recp_pddl_info.append(
+                                        f"  - PDDL name '{pddl_name}': EMPTY — ✓ available for placement"
+                                    )
+
+                            if recp_pddl_info:
+                                prompt += "### Receptacle Availability (CRITICAL — use the PDDL names below directly in (:objects) and (:goal))\n"
+                                prompt += "The PDDL name (e.g. 'drawer2') is the EXACT name you must write in the problem file.\n"
+                                prompt += "If a receptacle is OCCUPIED and placement failed, you MUST choose a different EMPTY one.\n"
+                                prompt += "\n".join(recp_pddl_info) + "\n\n"
+                        except Exception:
+                            pass
+
+                    prompt += (
+                        "CRITICAL: Use the above context to determine the EXACT :init state for the PDDL problem.\n"
+                        "In particular:\n"
+                        "  - If the robot is HOLDING an object, put (holding robot1 <obj>) in :init and do NOT include (not (holding robot1 <obj>)).\n"
+                        "  - If the drawer/receptacle is already OPEN, put (object-open robot1 <receptacle>) in :init.\n"
+                        "  - If the target receptacle is FULL (occupied), pick a DIFFERENT empty receptacle.\n"
+                        "  - Reflect any partial completion effects from the completed actions above.\n\n"
+                    )
+
+                prompt += f"CURRENT ENVIRONMENT OBJECT LIST (ground-truth):\n{objects_ai}\n\n"
+                prompt += "This is the ONLY set of objects that exist in the current environment.\n"
+
+                prompt += f"OBJECTS SELECTED FROM THE PREVIOUS STEP (for this subtask):\n{st_objects}\n\n"
+                prompt += "These are the objects that were judged to be relevant/needed for this subtask.\n"
+                prompt += "You should prioritize using these objects when constructing the PDDL problem.\n"
+                prompt += "However, you may also use other objects from CURRENT ENVIRONMENT OBJECT LIST if needed.\n\n\n"
+
+                prompt += f"AVAILABLE ROBOT SKILLS (action names):\n{robots}\n\n"
+                prompt += "These are the ONLY actions you are allowed to use.\n"
+
+                prompt += f"SKILLS REQUIRED FOR THIS SUBTASK (selected from the previous step):{st_skills}\n"
+                prompt += "Your generated PDDL problem must be solvable using ONLY these skills.\n\n\n"
+
+                prompt += f"DOMAIN :\n{domain_content}\n\n"
+                prompt += "Use this domain as the sole reference for predicates, action preconditions/effects.\n"
+
+                prompt += "OUTPUT FORMAT CONSTRAINT:\n"
+                prompt += "You MUST output ONLY a single complete PDDL problem file.\n"
+                prompt += "Do NOT include explanations, markdown, or extra text.\n"
+                prompt += "Follow exactly the example format below.\n\n"
+
+                prompt += "=== EXAMPLE OUTPUT FORMAT START ===\n"
+                prompt += problem_example_prompt 
+                prompt += "\n=== EXAMPLE OUTPUT FORMAT END ===\n\n"
+                prompt += "\n\n=== SUBTASK TO SOLVE ===\n"
+                prompt += f"{st}\n\n"  
+
+                prompt += "=== WHAT YOU MUST GENERATE ===\n"
+                prompt += "Robot starts in the kitchen!\n"
+                prompt += "1) (:objects ...) must include ONLY objects that appear in CURRENT ENVIRONMENT OBJECT LIST.\n"
+                prompt += "2) (:init ...) must include ALL facts required to make the plan executable.\n"
+                prompt += "3) (:goal ...) must represent completion of THIS subtask only.\n"
+                prompt += "4) OPENABLE vs NON-OPENABLE receptacles:\n"
+                prompt += "   OPENABLE (use object-close in :init): Drawer, Cabinet, Safe, Microwave, Dishwasher, Toilet, ShowerDoor, Box\n"
+                prompt += "   NON-OPENABLE (do NOT use object-close): CounterTop, StoveBurner, CoffeeMachine, DiningTable, Shelf, SinkBasin, Plate, Bowl, Bed, Sofa, ArmChair, Desk, SideTable, Dresser, TVStand, GarbageCan, Bathtub, Ottoman, Footrest\n"
+                prompt += "   - For OPENABLE receptacles ONLY: include (object-close robot1 <receptacle>) in :init\n"
+                prompt += "   - If putting an object INTO an openable receptacle, :goal should include (object-close robot1 <receptacle>)\n"
+                prompt += "   - PutObject REQUIRES (not (object-close ?r ?loc)), so the planner must OpenObject first\n"
+                prompt += "   - For NON-OPENABLE receptacles: do NOT add (object-close), just use PutObject directly\n"
+                prompt += "5) FRIDGE: use (is-fridge fridge) and (not (fridge-open fridge)) in :init (see Example 3)\n\n"
+
+                
+                if "gpt" not in self.gpt_version:
+                    _, text = self.llm.query_model(prompt, self.gpt_version, max_tokens=2000, stop=["def"], frequency_penalty=0.0)
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+                    _, text = self.llm.query_model(messages, self.gpt_version, max_tokens=2000, frequency_penalty=0.0)
+                result = {
+                    "subtask_id": sub_id,
+                    "subtask_title": title,
+                    "skills": st_skills,
+                    "objects": st_objects,
+                    "problem_name": f"subtask_{sub_id}_{re.sub(r'[^a-zA-Z0-9_]+','_', title)[:40]}",
+                    "problem_text": text,
+                    "raw_llm_output": text,
+                }
+                results.append(result)
+
+            return results
+
+        except Exception as e:
+            raise PDDLError(f"Error generating subtask PDDL problems: {str(e)}") from e
+        
     def _validate_and_plan(self) -> None:
         """pddl problem 파일 검증 후 fastDownward 실행, DAG 생성"""
         try:
@@ -1887,6 +2352,14 @@ class TaskManager:
 
     def run_planner_for_subtask_id(self, subtask_id: int) -> Tuple[bool, List[str]]:
             """단일 서브태스크에 대해서만 Fast-Downward 실행 (피드백 루프에서 재계획 시 사용)."""
+            # [Fix B] 플래너 실행 전 action-cost metric 주입
+            # run_planners()는 _inject_metric을 호출하지만 이 경로는 그렇지 않아
+            # seq-opt-lmcut이 unit-cost로 동작해 ThrowObject 같은 고비용 액션이 선택됨
+            val_dir = self.file_processor.validated_subtask_path
+            prefix = f"subtask_{subtask_id:02d}_"
+            for fname in os.listdir(val_dir):
+                if fname.startswith(prefix) and fname.endswith(".pddl"):
+                    self._inject_metric(os.path.join(val_dir, fname))
             return run_planner_for_one_subtask(
                 base_path=self.base_path,
                 file_processor=self.file_processor,
@@ -1922,7 +2395,18 @@ class TaskManager:
         failed = [sid for sid, r in execution_results.items() if not r.success and sid not in dropped_ids]
         if not failed:
             return "no_change"
-        
+
+        # 재계획 전용 versioned 폴더 생성 및 file_processor 경로 전환
+        # ─ 현재 폴더의 파일을 새 replan_N 폴더에 복사 후 경로를 전환한다.
+        # ─ 이후 모든 읽기/쓰기가 replan_N 폴더 기준으로 수행되므로
+        #   구 버전 plan 파일과 섞이지 않는다.
+        replan_dir = self._create_next_replan_dir()
+        print(f"[Replan] versioned folder: {replan_dir}")
+        self.file_processor.switch_to_dir(replan_dir)
+        if executor is not None:
+            # executor가 plan 파일을 읽는 경로도 versioned 폴더로 갱신
+            executor.plans_path = self.file_processor.subtask_pddl_plans_path
+
         # 현재 subtask dependency graph를 불러오기
         edges = load_subtask_dag_edges(self.base_path, task_name)
         
@@ -1935,6 +2419,7 @@ class TaskManager:
                 state_store=state_store,
                 group_agent=group_agent,
                 executor=executor,
+                task_robot_ids=task_robot_ids,
             )
         else:
             partial_replanner = None
@@ -2184,12 +2669,13 @@ class TaskManager:
 
         return "fully_replanned" if updated else "no_change"
 
-    def create_decomposition_callback(self, executor=None):
+    def create_decomposition_callback(self, executor=None, task_robot_ids=None):
         """
         이 TaskManager 인스턴스를 위한 decomposition_callback 생성
 
         Args:
             executor: MultiRobotExecutor 인스턴스 (실시간 오브젝트 정보 조회용)
+            task_robot_ids: 사용 가능한 로봇 ID 리스트 (holding 패치용)
 
         Returns:
             Callable: 실패한 그룹을 재분해하는 콜백 함수
@@ -2330,17 +2816,56 @@ class TaskManager:
                 subtask_robots[sid] = robots
                 subtask_objects[sid] = objects
 
-            # 그룹 내 등장하는 모든 로봇의 현재 위치 출력
-            all_robots = sorted(set(r for rs in subtask_robots.values() for r in rs))
+            # 실제 물리 로봇 ID 목록 (task_robot_ids 우선, 없으면 PDDL 파싱 fallback)
+            # all_robots는 PDDL :objects에서 파싱한 이름("robot1")만 담겨 물리 로봇 전체를 커버 못함.
+            # task_robot_ids를 쓰면 모든 물리 로봇(2, 3, 4 포함)의 위치/인벤토리를 출력할 수 있음.
+            if task_robot_ids:
+                all_physical_rids = sorted(task_robot_ids)
+            else:
+                # fallback: PDDL 파싱 결과에서 숫자 추출
+                all_physical_rids = sorted({
+                    int(re.sub(r"\D", "", rn))
+                    for rs in subtask_robots.values() for rn in rs
+                    if re.sub(r"\D", "", rn)
+                })
+
             local_env_lines.append("### Current Robot Positions")
-            for robot_name in all_robots:
+            for rid in all_physical_rids:
+                pos = live_robot_positions.get(rid)
+                pos_str = f"(x={pos[0]:.2f}, y={pos[1]:.2f}, z={pos[2]:.2f})" if pos else "(unknown)"
+                local_env_lines.append(f"- robot{rid}: {pos_str}")
+
+            # 로봇 인벤토리: 현재 손에 들고 있는 오브젝트 (CRITICAL for correct replanning)
+            # PDDL plan에서 실행 로봇은 항상 "robot1"으로 표기됨.
+            # 실패 서브태스크에 할당된 물리적 로봇 ID를 구해 "robot1"과 동일 취급임을 명시.
+            failed_physical_robot_id = None
+            if executor is not None:
+                failed_physical_robot_id = executor.assignment.get(context.failed_subtask_id)
+
+            local_env_lines.append("\n### Current Robot Inventory (what each robot is holding RIGHT NOW)")
+            local_env_lines.append(
+                "NOTE: In the PDDL plan, the robot executing each subtask is always written as 'robot1'. "
+                f"The physical robot assigned to the FAILED subtask (subtask {context.failed_subtask_id}) "
+                f"is Robot{failed_physical_robot_id} — treat its inventory as 'robot1' when writing the plan."
+            )
+            local_env_lines.append("IMPORTANT: If robot1 is HOLDING an object, do NOT add PickupObject for that object. Plan from the current held state.")
+            for rid in all_physical_rids:
                 try:
-                    rid = int(re.sub(r"\D", "", robot_name))
-                    pos = live_robot_positions.get(rid)
-                    pos_str = f"(x={pos[0]:.2f}, y={pos[1]:.2f}, z={pos[2]:.2f})" if pos else "(unknown)"
+                    agent_idx = rid - 1
+                    if (executor is not None and executor.controller is not None
+                            and agent_idx < len(executor.controller.last_event.events)):
+                        inv = executor.controller.last_event.events[agent_idx].metadata.get("inventoryObjects", [])
+                        # 실패 서브태스크 실행 로봇이면 PDDL명 "robot1"과 동일함을 강조
+                        pddl_label = " (= robot1 in PDDL)" if rid == failed_physical_robot_id else ""
+                        if inv:
+                            inv_names = [obj.get("objectType", obj.get("objectId", "?")) for obj in inv]
+                            local_env_lines.append(f"- robot{rid}{pddl_label}: HOLDING {', '.join(inv_names)}")
+                        else:
+                            local_env_lines.append(f"- robot{rid}{pddl_label}: holding nothing (hand empty)")
+                    else:
+                        local_env_lines.append(f"- robot{rid}: (inventory unknown)")
                 except Exception:
-                    pos_str = "(unknown)"
-                local_env_lines.append(f"- {robot_name}: {pos_str}")
+                    local_env_lines.append(f"- robot{rid}: (inventory unknown)")
 
             # live 오브젝트 상태를 이름(소문자)으로 매핑
             live_obj_map = {obj["name"].lower(): obj for obj in live_objects}
@@ -2360,6 +2885,42 @@ class TaskManager:
                         )
                     else:
                         local_env_lines.append(f"  - {obj_name}: (not found in scene)")
+
+            # 리셉터클(서랍/컨테이너) 현재 수납 상태 출력: LLM이 꽉 찬 리셉터클을 피해 대안을 선택할 수 있도록
+            # IMPORTANT: if a receptacle is FULL or has no space, use a different one
+            if executor is not None and executor.controller is not None:
+                try:
+                    local_env_lines.append("\n### Receptacle Availability (CRITICAL — use exact PDDL names when specifying placement targets)")
+                    local_env_lines.append("The PDDL name (e.g. 'drawer2') is the EXACT name to use in the PDDL problem file (:objects) and (:goal).")
+                    local_env_lines.append("If a receptacle is OCCUPIED and placement failed, you MUST choose a different EMPTY one.")
+                    all_scene_objs = executor.controller.last_event.metadata["objects"]
+                    recp_lines = []
+                    type_counter_recp: Dict[str, int] = {}
+                    for obj in all_scene_objs:
+                        if not obj.get("receptacle", False):
+                            continue
+                        recp_type = obj.get("objectType", "")
+                        if not recp_type:
+                            continue
+                        type_counter_recp[recp_type] = type_counter_recp.get(recp_type, 0) + 1
+                        pddl_name = f"{recp_type.lower()}{type_counter_recp[recp_type]}"
+                        contained = obj.get("receptacleObjectIds", [])
+                        if contained:
+                            contents_str = ", ".join(c.split("|")[0] for c in contained)
+                            recp_lines.append(
+                                f"  - PDDL name '{pddl_name}': OCCUPIED — contains [{contents_str}] — ❌ DO NOT use"
+                            )
+                        else:
+                            recp_lines.append(
+                                f"  - PDDL name '{pddl_name}': EMPTY — ✓ available for placement"
+                            )
+                    # 너무 많으면 잘라서 출력 (최대 20개)
+                    #local_env_lines.extend(recp_lines[:20])
+                    #if len(recp_lines) > 20:
+                    #    local_env_lines.append(f"  ... ({len(recp_lines) - 20} more receptacles omitted)")
+                except Exception as e:
+                    local_env_lines.append(f"  (receptacle contents unavailable: {e})")
+
             local_env_text = "\n".join(local_env_lines)
 
             # 4. 통합 목표 텍스트 생성
@@ -2375,19 +2936,8 @@ class TaskManager:
             except Exception as e:
                 print(f"  ERROR: Could not read domain: {e}")
                 return None
-            '''
-            print("\n------------여기임-----------\n")
-            print(context.completed_actions)
-            print("\n------------여기임-----------\n")
-
-            print("\n------------여기임-----------\n")
-            print(combined_goals)
-            print("\n------------여기임-----------\n")
-
-            print("\n------------여기임-----------\n")
-            print(success_effects_text)
-            print("\n------------여기임-----------\n")
-            '''
+            
+            # 디버그 전체 덤프는 제거: 로그 노이즈가 커서 재계획 상태 추적을 방해함
             # decomposition prompt file 불러오기
             decompose_prompt_path = os.path.join(self.base_path, "data", "pythonic_plans", f"chaerin_pddl_train_redecom.py")
             decompose_prompt = self.file_processor.read_file(decompose_prompt_path)
@@ -2409,7 +2959,7 @@ class TaskManager:
             redecompose_prompt += "  - 'Receptacle is CLOSED' → solution: open the receptacle first, then retry\n"
             redecompose_prompt += "  - 'hand already has something' → solution: drop the held object first\n"
             redecompose_prompt += "  - 'object not visible / not reachable' → solution: navigate closer or to a different position\n"
-            redecompose_prompt += "  - Navigation timeout / stuck → solution: retry with different approach\n"
+            redecompose_prompt += "  - No valid positions to place object found / that place is already full. find another space.\n"
             redecompose_prompt += "  - \"can't place an object if agent isn't holding anything\" → solution: navigate to the object, pick it up again, then retry placement (the robot did not successfully pick up the object before reaching the receptacle)\n"
             redecompose_prompt += "In this case, DO NOT drop the goal. Instead, redecompose with corrected action sequences.\n\n"
             redecompose_prompt += "### IMPORTANT: Only drop goals that are DIRECTLY affected by the impossible constraint.\n"
@@ -2436,6 +2986,15 @@ class TaskManager:
             redecompose_prompt += "The following is an example of the expected output format.\n\n"
             redecompose_prompt += decompose_prompt
 
+            redecompose_prompt += "## RULE: SUBTASK GRANULARITY\n"
+            redecompose_prompt += "Each subtask MUST be a COMPLETE, self-contained operation — do NOT split a single 'place object' goal into multiple subtasks.\n"
+            redecompose_prompt += "A 'Store/Place X in Y' subtask bundles ALL necessary steps into ONE unit:\n"
+            redecompose_prompt += "  GoToObject → PickupObject → GoToObject(destination) → OpenObject → PutObject → CloseObject  =  ONE subtask\n"
+            redecompose_prompt += "WRONG (too fine-grained): SubTask1='Pick Up Knife', SubTask2='Place Knife in Drawer', SubTask3='Close Drawer'\n"
+            redecompose_prompt += "CORRECT: SubTask1='Store the Knife' (contains all of the above actions)\n"
+            redecompose_prompt += "Exception: if the robot is ALREADY HOLDING the target object, omit GoToObject+PickupObject.\n"
+            redecompose_prompt += "Exception: if the receptacle is ALREADY OPEN, omit OpenObject.\n\n"
+
             redecompose_prompt += "## Your Task\n"
             redecompose_prompt += "1. FIRST: Classify the failure as Category A (physically impossible) or Category B (recoverable).\n"
             redecompose_prompt += "2. If Category A: DROP ONLY the specific failed goal. Keep ALL other unrelated goals.\n"
@@ -2445,6 +3004,7 @@ class TaskManager:
             redecompose_prompt += "   b. Account for actions already completed before failure (their effects are real)\n"
             redecompose_prompt += "   c. Maximize parallelism where dependencies allow\n"
             redecompose_prompt += "   d. Use ONLY available skills and existing objects\n"
+            redecompose_prompt += "   e. Keep subtask granularity coarse: one subtask = one complete object-placement operation\n"
             redecompose_prompt += "5. Only return an empty subtask list if ALL goals are physically impossible.\n"
             
             # 7. LLM 호출
@@ -2476,31 +3036,28 @@ class TaskManager:
             
             # 8. 응답 파싱 (유연한 파서 사용: 번호 없는 SubTask 헤더 등 다양한 형식 지원)
             redecomposed_subtasks = self._parse_redecompose_response(redecompose_text, tasks_to_replan)
-            '''
+            
             print(f"  [Parser] LLM response → {len(redecomposed_subtasks)} subtask(s) parsed")
-            print("\n------------\n")
-            print(redecompose_text)
-            print("\n------------\n")
-            print(tasks_to_replan)
-            print("\n------------\n")
-            '''
+            
             if not redecomposed_subtasks:
                 # 파서가 액션 스텝을 찾지 못함 = LLM이 물리적으로 불가능으로 판단
                 #self._fb_log_line("LLM result: Drop")
                 return {}
             
-            print(f"  ✓ Redecomposed into {len(redecomposed_subtasks)} new subtasks")
+            print(f"  Redecomposed into {len(redecomposed_subtasks)} new subtasks")
             
             # 9. Precondition 및 PDDL Problem 생성
             #print("  Generating preconditions and PDDL problems...")
             try:
                 # Precondition 생성 (성공 effects를 초기 상태로 반영)
-                precondition_subtasks = self._generate_precondition_subtasks(
+                precondition_subtasks = self._generate_reprecondition_subtasks(
                     redecomposed_subtasks,
                     domain_content,
                     self.available_robot_skills,
-                    live_objects_ai
+                    live_objects_ai,
+                    context=context,
                 )
+
 
                 # 성공 effects를 초기 상태에 명시적으로 추가
                 if success_effects_text:
@@ -2510,12 +3067,15 @@ class TaskManager:
                         enhanced_pre = f"# Already Achieved (from successful subtasks):\n{success_effects_text}\n\n{pre_text}"
                         item["pre_goal_text"] = enhanced_pre
 
-                # PDDL Problem 생성
-                subtask_pddl_problems = self._generate_subtask_pddl_problems(
+                # PDDL Problem 생성: executor를 context에 attach해서 receptacle 정보 접근
+                if not hasattr(context, 'executor'):
+                    context.executor = executor
+                subtask_pddl_problems = self._regenerate_subtask_pddl_problems(
                     precondition_subtasks,
                     domain_content,
                     self.available_robot_skills,
-                    live_objects_ai
+                    live_objects_ai,
+                    context=context,
                 )
                 
             except Exception as e:
@@ -2531,17 +3091,33 @@ class TaskManager:
                     sid = item.get("subtask_id", -1)
                     title = item.get("subtask_title", "untitled")
                     text = item.get("pre_goal_text", "")
-                    
+
+                    # 같은 subtask_id의 기존 precondition 파일 제거 (중복 방지)
+                    for old_f in os.listdir(precond_dir):
+                        if old_f.startswith(f"pre_{sid:02d}_") and old_f.endswith(".txt"):
+                            try:
+                                os.remove(os.path.join(precond_dir, old_f))
+                            except Exception:
+                                pass
+
                     safe_title = re.sub(r'[^a-zA-Z0-9_\-]+', '_', title).strip('_')
                     filename = f"pre_{sid:02d}_{safe_title}_REPLAN.txt"
                     out_path = os.path.join(precond_dir, filename)
                     self.file_processor.write_file(out_path, text)
-                
+
                 for item in subtask_pddl_problems:
                     sid = item["subtask_id"]
                     title = item["subtask_title"]
                     pddl_text = item["problem_text"]
-                    
+
+                    # 같은 subtask_id의 기존 pddl problem 파일 제거 (중복 방지)
+                    for old_f in os.listdir(problems_dir):
+                        if old_f.startswith(f"subtask_{sid:02d}_") and old_f.endswith(".pddl"):
+                            try:
+                                os.remove(os.path.join(problems_dir, old_f))
+                            except Exception:
+                                pass
+
                     safe_title = re.sub(r'[^a-zA-Z0-9_\-]+', '_', title).strip('_')
                     filename = f"subtask_{sid:02d}_{safe_title}_REPLAN.pddl"
                     out_path = os.path.join(problems_dir, filename)
@@ -2559,19 +3135,96 @@ class TaskManager:
                 import traceback
                 traceback.print_exc()
 
+            # 10-3. [Issue 1 Fix] PDDL :init holding 상태 패치
+            # LLM이 생성한 PDDL에 (not (holding robot1 X))가 남아있으면 플래너가 로봇 손이 비어있다고 가정.
+            # 실패한 로봇뿐 아니라 모든 로봇의 인벤토리를 확인해 (not (holding ...)) → (holding ...) 로 교체.
+            # (예: robot3이 knife를 들고 있는데 다른 로봇이 실패한 경우에도 knife subtask PDDL을 올바르게 패치)
+            if executor is not None and executor.controller is not None:
+                try:
+                    # 모든 로봇의 인벤토리를 통합 수집
+                    all_held_lower: set = set()
+                    events = executor.controller.last_event.events
+                    for rid in all_physical_rids:
+                        agent_idx = rid - 1
+                        if agent_idx >= len(events):
+                            continue
+                        inv = events[agent_idx].metadata.get("inventoryObjects", [])
+                        for obj in inv:
+                            ot = obj.get("objectType", "")
+                            if ot:
+                                all_held_lower.add(ot.lower())
+                                print(f"  [Inventory] Robot{rid} holding: {ot}")
+
+                    if all_held_lower:
+                        val_dir = self.file_processor.validated_subtask_path
+                        replan_sids = {item["subtask_id"] for item in subtask_pddl_problems}
+                        for fname in os.listdir(val_dir):
+                            if not fname.endswith(".pddl"):
+                                continue
+                            sid_m = re.match(r"subtask_(\d+)_", fname)
+                            if not sid_m or int(sid_m.group(1)) not in replan_sids:
+                                continue
+                            fpath = os.path.join(val_dir, fname)
+                            content = self.file_processor.read_file(fpath)
+                            new_content = content
+                            for ht in all_held_lower:
+                                # (not (holding robot1 <obj>)) → (holding robot1 <obj>)
+                                # case-insensitive 매칭, 원본 대소문자 유지
+                                pat = re.compile(
+                                    r'\(\s*not\s+\(\s*holding\s+robot1\s+(' + re.escape(ht) + r')\s*\)\s*\)',
+                                    re.IGNORECASE,
+                                )
+                                new_content = pat.sub(r'(holding robot1 \1)', new_content)
+                            if new_content != content:
+                                self.file_processor.write_file(fpath, new_content)
+                                print(f"  [Patch] holding state fixed in {fname}")
+                except Exception as e:
+                    print(f"  Warning: holding state patch failed: {e}")
+
             # 11. 플래너 실행하여 액션 생성
             print("  Running planner for new subtasks...")
             new_plans: Dict[int, List[str]] = {}
-            
+
             for item in subtask_pddl_problems:
                 sid = item["subtask_id"]
-                
+                plans_dir = self.file_processor.subtask_pddl_plans_path
+                prefix = f"subtask_{sid:02d}_"
+                # 동일 sid의 과거 action 파일 제거 (stale/중복 방지)
+                for old_f in os.listdir(plans_dir):
+                    if old_f.startswith(prefix) and old_f.endswith("_actions.txt"):
+                        try:
+                            os.remove(os.path.join(plans_dir, old_f))
+                        except Exception:
+                            pass
+
                 ok, plan_actions = self.run_planner_for_subtask_id(sid)
-                
+
                 if ok and plan_actions:
                     new_plans[sid] = plan_actions
                     print(f"    Subtask {sid}: ✓ {len(plan_actions)} actions")
+                    # [Issue 2 Fix] REPLAN 액션 파일이 생성됐으면 같은 subtask_id의 원본 파일 삭제
+                    plans_dir = self.file_processor.subtask_pddl_plans_path
+                    prefix = f"subtask_{sid:02d}_"
+                    for old_f in os.listdir(plans_dir):
+                        if (old_f.startswith(prefix)
+                                and old_f.endswith("_actions.txt")
+                                and "_REPLAN" not in old_f):
+                            try:
+                                os.remove(os.path.join(plans_dir, old_f))
+                                print(f"  [Cleanup] Removed duplicate original: {old_f}")
+                            except Exception:
+                                pass
                 else:
+                    # planner 실패 시 생성된 빈 파일 정리
+                    for old_f in os.listdir(plans_dir):
+                        if not (old_f.startswith(prefix) and old_f.endswith("_actions.txt")):
+                            continue
+                        fpath = os.path.join(plans_dir, old_f)
+                        try:
+                            if os.path.getsize(fpath) == 0:
+                                os.remove(fpath)
+                        except Exception:
+                            pass
                     print(f"    Subtask {sid}: ✗ Planning failed")
             
             if not new_plans:
@@ -2589,6 +3242,7 @@ class TaskManager:
         state_store,
         group_agent,
         executor=None,
+        task_robot_ids=None,
     ):
         """
         PartialReplanner 생성 시 decomposition_callback을 주입하는 헬퍼 메서드
@@ -2597,11 +3251,12 @@ class TaskManager:
             state_store: SharedTaskStateStore 인스턴스
             group_agent: GroupAgent 인스턴스
             executor: MultiRobotExecutor 인스턴스 (실시간 오브젝트 정보용)
+            task_robot_ids: 사용 가능한 로봇 ID 리스트 (holding 패치용)
 
         Returns:
             PartialReplanner (decomposition_callback 포함)
         """
-        decomp_callback = self.create_decomposition_callback(executor=executor)
+        decomp_callback = self.create_decomposition_callback(executor=executor, task_robot_ids=task_robot_ids)
         
         replanner = PartialReplanner(
             store=state_store,
@@ -2666,7 +3321,7 @@ class TaskManager:
             with open(dag_path, "r") as f:
                 original_dag = json.load(f)
             
-            print(f"  ✓ Loaded original DAG with {len(original_dag['nodes'])} nodes")
+            print(f"  Loaded original DAG with {len(original_dag['nodes'])} nodes")
             
             # 2. 서브테스크 상태 분류: 성공 / 실패 / 미실행(pending)
             success_ids = []
@@ -2681,15 +3336,21 @@ class TaskManager:
                     failed_ids.append(sid)
 
             # 원래 DAG에 있지만 아직 실행되지 않은 서브테스크 (pending)
+            # LLM이 일부 subtask를 drop한 경우에도 replaced_subtask_ids에 포함됐다고 삭제하면 안 됨.
+            # 실제로 새 플랜이 생성된 replanned_subtask_ids만 제외하고, 나머지 미실행 서브태스크는 유지.
             all_original_ids = [n["id"] for n in original_dag["nodes"]]
             executed_ids = set(success_ids + failed_ids)
-            pending_ids = [sid for sid in all_original_ids if sid not in executed_ids and sid not in replaced_subtask_ids]
+            pending_ids = [
+                sid for sid in all_original_ids
+                if sid not in executed_ids           # 아직 실행 안 됨
+                and sid not in replanned_subtask_ids # 새 플랜으로 대체되지 않음 (원본 플랜 유지)
+            ]
 
-            print(f"  Success subtasks: {success_ids}")
-            print(f"  Failed subtasks: {failed_ids}")
-            print(f"  Pending subtasks (not yet executed): {pending_ids}")
-            print(f"  Replaced subtasks: {replaced_subtask_ids}")
-            print(f"  Replanned subtasks: {replanned_subtask_ids}")
+            #print(f"  Success subtasks: {success_ids}")
+            #print(f"  Failed subtasks: {failed_ids}")
+            #print(f"  Pending subtasks (not yet executed): {pending_ids}")
+            #print(f"  Replaced subtasks: {replaced_subtask_ids}")
+            #print(f"  Replanned subtasks: {replanned_subtask_ids}")
 
             # 유지할 서브테스크: 성공 + 미실행(pending)
             keep_ids = set(success_ids + pending_ids)
@@ -2706,10 +3367,10 @@ class TaskManager:
                 if e["from_id"] in keep_ids and e["to_id"] in keep_ids
             ]
 
-            print(f"  ✓ Kept {len(kept_nodes)} nodes ({len(success_ids)} success + {len(pending_ids)} pending), {len(kept_edges)} edges")
+            #print(f"  ✓ Kept {len(kept_nodes)} nodes ({len(success_ids)} success + {len(pending_ids)} pending), {len(kept_edges)} edges")
             
             # 3. 재계획된 서브테스크들에 대한 새 DAG 노드 생성
-            print(f"\n  [Step 3] Generating new DAG for replanned subtasks...")
+            print(f"\n  Generating new DAG for replanned subtasks...")
             
             plans_dir = self.file_processor.subtask_pddl_plans_path
             problems_dir = self.file_processor.subtask_pddl_problems_path
@@ -2783,10 +3444,10 @@ class TaskManager:
             new_nodes = [asdict(n) for n in new_subtask_dag.nodes]
             new_edges = [asdict(e) for e in new_subtask_dag.edges]
             
-            print(f"  ✓ Generated new DAG: {len(new_nodes)} nodes, {len(new_edges)} edges")
+            print(f"  Generated new DAG: {len(new_nodes)} nodes, {len(new_edges)} edges")
             
             # 4. 성공 DAG + 새 DAG 병합
-            print(f"\n  [Step 4] Merging success DAG and new DAG...")
+            print(f"\n  Merging success DAG and new DAG...")
             
             # 노드 병합: 유지된 노드(성공+pending) + 리플랜 노드
             integrated_nodes = kept_nodes + new_nodes
@@ -2827,19 +3488,19 @@ class TaskManager:
             
             integrated_edges = unique_edges
             
-            print(f"  ✓ Merged DAG: {len(integrated_nodes)} nodes, {len(integrated_edges)} edges")
+            print(f"  Merged DAG: {len(integrated_nodes)} nodes, {len(integrated_edges)} edges")
             
             # 6. 병렬 그룹 재계산
-            print(f"\n  [Step 5] Recomputing parallel groups...")
+            #print(f"\n  [Step 5] Recomputing parallel groups...")
             
             parallel_groups = self._compute_parallel_groups_from_dag(
                 integrated_nodes,
                 integrated_edges
             )
             
-            print(f"  ✓ Computed {len(parallel_groups)} parallel groups")
-            for gid, sids in sorted(parallel_groups.items()):
-                print(f"    Group {gid}: {sids}")
+            #print(f"  ✓ Computed {len(parallel_groups)} parallel groups")
+            #for gid, sids in sorted(parallel_groups.items()):
+            #    print(f"    Group {gid}: {sids}")
             
             # 7. 통합 DAG 생성 및 저장
             integrated_dag = {
@@ -2859,17 +3520,17 @@ class TaskManager:
             with open(dag_path, "w") as f:
                 json.dump(integrated_dag, f, indent=2, ensure_ascii=False)
             
-            print(f"  ✓ Integrated DAG saved: {dag_path}")
+            #print(f"  ✓ Integrated DAG saved: {dag_path}")
             
             # 시각화
             try:
                 img_path = os.path.join(dag_output_dir, f"{task_name}_SUBTASK_DAG_INTEGRATED.png")
                 dag_generator.visualize_subtask_dag(new_subtask_dag, img_path)
-                print(f"  ✓ Visualization saved: {img_path}")
+                #print(f"  ✓ Visualization saved: {img_path}")
             except Exception as e:
                 print(f"  Warning: Visualization failed: {e}")
             
-            print(f"{'='*60}\n")
+            #print(f"{'='*60}\n")
             
             return True
             
@@ -3026,7 +3687,7 @@ class TaskManager:
                     "objects": objects
                 })
             
-            print(f"  ✓ Collected {len(parsed_subtasks)} subtasks")
+            #print(f"  ✓ Collected {len(parsed_subtasks)} subtasks")
             
             # 3. Plan actions 로드
             plan_actions_by_sid = self._load_plan_actions_by_subtask_id()
@@ -3044,7 +3705,7 @@ class TaskManager:
             subtask_dag_obj = SubtaskDAGWrapper(integrated_dag)
             binding_pairs = binding_pairs_from_subtask_dag(subtask_dag_obj)
             
-            print(f"  ✓ Computed {len(binding_pairs)} binding pairs")
+            #print(f"  ✓ Computed {len(binding_pairs)} binding pairs")
             
             # 5. 로봇/오브젝트 위치 가져오기 (거리 기반 최적화)
             robot_positions = None
@@ -3052,12 +3713,12 @@ class TaskManager:
             
             if executor is not None and executor.controller is not None:
                 robot_positions, object_positions = executor.get_live_positions()
-                print(f"  ✓ Robot positions (live): {robot_positions}")
+                #print(f"  ✓ Robot positions (live): {robot_positions}")
             elif floor_plan is not None:
                 robot_positions, object_positions = MultiRobotExecutor.spawn_and_get_positions(
                     floor_plan, len(task_robot_ids)
                 )
-                print(f"  ✓ Robot positions (new scene): {robot_positions}")
+                #print(f"  ✓ Robot positions (new scene): {robot_positions}")
             
             # 6. LP 작업 할당 실행
             from LP_Module import assign_subtasks_cp_sat
@@ -3067,6 +3728,62 @@ class TaskManager:
             pg_for_lp = None
             if "parallel_groups" in integrated_dag:
                 pg_for_lp = {str(k): v for k, v in integrated_dag["parallel_groups"].items()}
+
+            # 물건을 손에 들고 있는 로봇 → 해당 오브젝트가 포함된 서브태스크는 반드시 그 로봇에 배당
+            forced_assignments: Dict[int, int] = {}
+            if executor is not None and executor.controller is not None:
+                # 로봇별 실제 인벤토리 수집 (objectType → physical robot id)
+                held_by: Dict[str, int] = {}
+                for rid in task_robot_ids:
+                    agent_idx = rid - 1
+                    if agent_idx >= len(executor.controller.last_event.events):
+                        continue
+                    inv = executor.controller.last_event.events[agent_idx].metadata.get("inventoryObjects", [])
+                    if not inv:
+                        continue
+                    held_types = {obj.get("objectType", "").lower() for obj in inv if obj.get("objectType")}
+                    for ht in held_types:
+                        held_by[ht] = rid
+                    # 방법 1: precondition 파일의 objects 필드 매칭
+                    for st in parsed_subtasks:
+                        parsed_obj_types = set()
+                        for obj_desc in st.get("objects", []):
+                            m = re.match(r"\s*([A-Za-z][A-Za-z0-9_]*)", str(obj_desc))
+                            if m:
+                                parsed_obj_types.add(m.group(1).lower())
+                        if held_types & parsed_obj_types:
+                            forced_assignments[st["id"]] = rid
+
+                # 방법 2: validated PDDL의 (holding robot1 X) init 상태로 보완
+                # pre 파일 내용이 잘못되어 방법 1이 실패한 경우를 커버
+                if held_by:
+                    val_dir = self.file_processor.validated_subtask_path
+                    sid_set = {st["id"] for st in parsed_subtasks}
+                    try:
+                        for fname in os.listdir(val_dir):
+                            if not fname.endswith(".pddl"):
+                                continue
+                            m = re.match(r"subtask_(\d+)_", fname)
+                            if not m:
+                                continue
+                            sid = int(m.group(1))
+                            if sid not in sid_set or sid in forced_assignments:
+                                continue
+                            with open(os.path.join(val_dir, fname), "r") as f:
+                                content = f.read()
+                            for ht, rid in held_by.items():
+                                pat = re.compile(
+                                    r'\(\s*holding\s+robot1\s+(' + re.escape(ht) + r')\s*\)',
+                                    re.IGNORECASE,
+                                )
+                                if pat.search(content):
+                                    forced_assignments[sid] = rid
+                                    print(f"  [PDDL holding] Subtask {sid} forced to Robot{rid} (holding {ht})")
+                    except Exception as e:
+                        print(f"  Warning: PDDL holding check failed: {e}")
+
+                #if forced_assignments:
+                    #print(f"  ✓ Forced assignments (holding constraint): {forced_assignments}")
 
             assignment = assign_subtasks_cp_sat(
                 subtasks=parsed_subtasks,
@@ -3078,6 +3795,7 @@ class TaskManager:
                 robot_positions=robot_positions,
                 object_positions=object_positions,
                 parallel_groups=pg_for_lp,
+                forced_assignments=forced_assignments if forced_assignments else None,
             )
             
             # 7. 할당 결과 출력 및 저장
@@ -3104,7 +3822,7 @@ class TaskManager:
             with open(assignment_path, "w") as f:
                 json.dump(assignment_output, f, indent=2, ensure_ascii=False)
             
-            print(f"  ✓ Assignment saved: {assignment_path}")
+            #print(f"  ✓ Assignment saved: {assignment_path}")
             print(f"{'='*60}\n")
             
             return assignment

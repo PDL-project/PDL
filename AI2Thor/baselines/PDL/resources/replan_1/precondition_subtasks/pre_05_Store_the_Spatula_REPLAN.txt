@@ -1,0 +1,68 @@
+# Already Achieved (from successful subtasks):
+- Subtask 1: (at robot1 drawer); (at robot1 fork); (at-location fork drawer); (holding robot1 fork); (not (holding robot1 fork)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 2: (at robot1 drawer); (at robot1 spoon); (at-location spoon drawer); (holding robot1 spoon); (not (holding robot1 spoon)); (not (inaction robot1)); (not (object-open robot1 drawer)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 3: (at robot1 drawer); (at robot1 knife); (holding robot1 knife); (object-open robot1 drawer)
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not holding any object
+#2. Spatula is at counterTop
+#3. Drawer is closed
+
+# SubTask 3: Store the Spatula
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: spatula(Location=counterTop), drawer(Location=floor)
+
+GoToObject(robot1, spatula)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 spatula)
+
+PickupObject(robot1, spatula, counterTop)
+   Preconditions:
+     (at-location spatula counterTop)
+     (at robot1 spatula)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 spatula)
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+
+PutObject(robot1, spatula, drawer)
+   Preconditions:
+     (holding robot1 spatula)
+     (at robot1 drawer)
+     (not (inaction robot1))
+     (object-open robot1 drawer)
+   Effects:
+     (at-location spatula drawer)
+     (not (holding robot1 spatula))
+
+CloseObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+     (object-open robot1 drawer)
+   Effects:
+     (object-close robot1 drawer)
+
+Goal condition: 
+(at-location spatula drawer)
+(hand-empty robot1)
+
+# Task Store the Spatula is done.

@@ -444,6 +444,9 @@ class PartialReplanner:
                 else:
                     #print(f"[ReplanGroup] decomposition_callback: all impossible goals dropped (no new subtasks needed)")
                     return "dropped"
+            # decomposition callback이 켜진 상태에서 None이면
+            # "replanned"로 오인될 수 있는 fallback을 막고 실패로 명시한다.
+            return "failed"
 
         # 2단계: fallback - 실패한 서브태스크 1개만 재계획
         #print(f"[ReplanGroup] Falling back to single subtask replan for subtask {context.failed_subtask_id}")
@@ -777,6 +780,8 @@ def run_planner_for_one_subtask(
             timeout=planner_timeout,
         )
         plan_actions = extract_plan_actions_fn(result.stdout)
+        if not plan_actions:
+            return False, []
         base_name = os.path.splitext(problem_file)[0]
         actions_path = os.path.join(subtask_pddl_plans_path, f"{base_name}_actions.txt")
         with open(actions_path, "w") as f:

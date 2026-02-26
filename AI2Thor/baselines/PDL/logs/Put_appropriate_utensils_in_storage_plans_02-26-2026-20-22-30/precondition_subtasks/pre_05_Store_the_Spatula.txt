@@ -1,0 +1,64 @@
+# Task Description: Store the Spatula.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not at spatula location
+#2. Robot not holding spatula
+#3. Drawer is initially closed
+
+# SubTask 5: Store the Spatula. 
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: spatula(Location=counterTop), drawer(Location=floor)
+
+GoToObject(robot1, spatula)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 spatula)
+
+PickupObject(robot1, spatula, counterTop)
+   Preconditions:
+     (at-location spatula counterTop)
+     (at robot1 spatula)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 spatula)
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+
+PutObject(robot1, spatula, drawer)
+   Preconditions:
+     (holding robot1 spatula)
+     (at robot1 drawer)
+     (not (inaction robot1))
+     (not (object-close robot1 drawer))
+   Effects:
+     (at-location spatula drawer)
+     (not (holding robot1 spatula))
+
+CloseObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+     (object-open robot1 drawer)
+   Effects:
+     (object-close robot1 drawer)
+
+Goal condition: 
+(at-location spatula drawer)
+
+# Task Put appropriate utensils in storage is done.

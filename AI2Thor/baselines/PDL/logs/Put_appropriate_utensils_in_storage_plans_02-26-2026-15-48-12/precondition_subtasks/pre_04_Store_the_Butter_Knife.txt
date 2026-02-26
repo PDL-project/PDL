@@ -1,0 +1,63 @@
+# Task Description: Store the Butter Knife.
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not holding spatula.
+# 2. Robot not at spatula location.
+
+# SubTask 4: Store the Butter Knife. 
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: butterKnife(Location=counterTop), drawer(Location=floor)
+
+GoToObject(robot1, butterKnife)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 butterKnife)
+
+PickupObject(robot1, butterKnife, counterTop)
+   Preconditions:
+     (at-location butterKnife counterTop)
+     (at robot1 butterKnife)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 butterKnife)
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+
+PutObject(robot1, butterKnife, drawer)
+   Preconditions:
+     (holding robot1 butterKnife)
+     (at robot1 drawer)
+     (not (inaction robot1))
+     (not (object-close robot1 drawer))
+   Effects:
+     (at-location butterKnife drawer)
+     (not (holding robot1 butterKnife))
+
+CloseObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+     (object-open robot1 drawer)
+   Effects:
+     (object-close robot1 drawer)
+
+Goal condition: 
+(at-location butterKnife drawer)
+
+# Task Store the Butter Knife is done.

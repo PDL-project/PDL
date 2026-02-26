@@ -1,0 +1,49 @@
+{
+  "task_idx": 0,
+  "agent_count": 4,
+  "assignment": {
+    "1": 1,
+    "2": 2,
+    "3": 4
+  },
+  "subtasks": [
+    {
+      "id": 1,
+      "title": "subtask_01_Store_the_Fork",
+      "robot": 1
+    },
+    {
+      "id": 2,
+      "title": "subtask_02_Store_the_Spoon",
+      "robot": 2
+    },
+    {
+      "id": 3,
+      "title": "subtask_03_Store_the_Knife_in_an_Available_Receptacle_REPLAN",
+      "robot": 4
+    }
+  ],
+  "replanned": true,
+  "robot_spawn_positions": {
+    "1": [
+      -0.24614423513412476,
+      1.123205542564392,
+      1.373565435409546
+    ],
+    "2": [
+      -0.4573536515235901,
+      1.123205542564392,
+      0.22145956754684448
+    ],
+    "3": [
+      -0.5,
+      1.123205542564392,
+      1.75
+    ],
+    "4": [
+      -0.03338390588760376,
+      1.123205542564392,
+      0.20846642553806305
+    ]
+  }
+}

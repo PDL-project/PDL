@@ -1,0 +1,54 @@
+# Already Achieved (from successful subtasks):
+- Subtask 1: (at robot1 drawer); (at robot1 fork); (at-location fork drawer); (holding robot1 fork); (not (holding robot1 fork)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 2: (at robot1 drawer); (at robot1 spoon); (at-location spoon drawer); (holding robot1 spoon); (not (holding robot1 spoon)); (not (inaction robot1)); (not (object-open robot1 drawer)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 3: (at robot1 drawer); (at robot1 knife); (holding robot1 knife); (object-open robot1 drawer)
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot holding knife
+#2. Robot not at drawer1 location
+#3. drawer1 is initially closed
+
+# SubTask 1: Store the Knife in a Different Location
+    Skills Required: GoToObject, PutObject, CloseObject
+    Related Objects: knife(Location=robot1), drawer1(Location=floor)
+
+GoToObject(robot1, drawer1)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer1)
+
+OpenObject(robot1, drawer1)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer1)
+   Effects:
+     (object-open robot1 drawer1)
+
+PutObject(robot1, knife, drawer1)
+   Preconditions:
+     (holding robot1 knife)
+     (at robot1 drawer1)
+     (not (inaction robot1))
+     (object-open robot1 drawer1)
+   Effects:
+     (at-location knife drawer1)
+     (not (holding robot1 knife))
+
+CloseObject(robot1, drawer1)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer1)
+     (object-open robot1 drawer1)
+   Effects:
+     (object-close robot1 drawer1)
+
+Goal condition: 
+(at-location knife drawer1)
+(object-close robot1 drawer1)
+
+# Task Store the Knife in a Different Location is done.

@@ -1,74 +1,74 @@
-# Task Description: Put an Egg in the Fridge, and place a pot containing Apple slices into the refrigerator.
-
-
 # GENERAL TASK DECOMPOSITION 
 # Decompose and parallel subtasks where ever possible
 # Independent subtasks:
 
-# Initial condition analyze (Based on Already Achieved Effects):
-#1. egg is in fridge
-#2. Robot not holding apple
-#3. Robot not at apple location
+## Case 1 (example): 
+# Failure Reason
+Robot1 is already holding pen|01.20. Robot1 cannot pick up Spoon|02.15 while its gripper is occupied.
+pen can not put in drawer1. because it is already full. place another drawer.
 
-# SubTask 1: Prepare Apple Slices. 
-    Skills Required: GoToObject, PickupObject, SliceObject, PutObject
-    Related Objects: apple(Location=counterTop), knife(Location=diningTable), pot(Location=stoveBurner)
+# Action Plan
+To resolve the failure, the highest priority is to clear the robot's gripper. 
+The robot will first complete the original goal of "placing the pen in drawer2" to free up the gripper, then retry the interrupted task of "picking up the spoon." Subsequently, it will proceed sequentially with the remaining tasks: placing the doll into the box.
 
-# Initial condition analyze (Based on Already Achieved Effects):
-#1. Robot at pot location
-#2. Fridge is Fridge, and initally closed
-#3. Robot not holding pot initally.
+# Redecomposition of Subtasks
 
-# SubTask 2: Place the Pot with Apple Slices in the Fridge.
-    Skills Required: GoToObject, PickupObject, PutObject, OpenObject, CloseObject
-    Related Objects: pot(Location=stoveBurner), apple(Location=counterTop), fridge(Location=floor)
+### Initial Condition Analysis (Based on Already Achieved Effects):
+1. Robot1 is at the fridge.
+2. Robot1 is holding pen.
+3. pen can not put in Drawer 1
 
-# Task Put an Egg in the Fridge, and place a pot containing Apple slices into the refrigerator is done.
+### SubTask 1: Place the pen in drawer2.
+   Skills Required: GoToObject, PutObject
+   Related Objects: pen(Location=robot2), table(Location=kitcken)
+
+   - Preconditions: holding(robot1, pen), at(robot1, drawer2)
+   - Effects: at-location(pen, drawer2), not holding(robot1, pen), hand-empty(robot1)
+
+### SubTask 2: Put the Spoon in the Box.
+   Skills Required: GoToObject, PickUp, PutObject
+   Related Objects: spoon(Location=diningTable), box(Location=kitcken)
+
+   - Preconditions: hand-empty(robot1)
+   - Effects: in-box(spoon, box), hand-empty(robot1)
+
+### SubTask 3: Put doll in the Box.
+   Skills Required: GoToObject, PickUp, PutObject
+   Related Objects: doll(Location=diningTable), box(Location=kitcken)
+
+   - Preconditions: hand-empty(robot1)
+   - Effects: in-box(doll, box), hand-empty(robot1)
+
+## Case 1 (example) done.
 
 
-# Task Description: Make a sandwich with sliced lettuce, sliced tomato, sliced bread and serve it on a washed plate.
+## Case 2 (example):
+# Failure Reason
+Toybox|05.12 is not an Openable object (Locked or Fixed). The action Open(robot1, toybox) is physically impossible.
 
-# GENERAL TASK DECOMPOSITION
-# Decompose and parallelize subtasks where ever possible
-# Independent subtasks:
+# Action Plan
+Since the failure is classified as Category A (Physically Impossible), the subtask of opening the toyBox will be dropped. 
+However, the remaining tasks that do not depend on opening this specific box remain valid. The robot will skip the problematic subtask and proceed with the next available independent tasks: placing the block on the shelf and putting the ball in the basket.
 
-# Initial condition analyze (Based on Already Achieved Effects):
-# 1. Robot not holding lettuce.
-# 2. Robot not at lettuce location.
+# Redecomposition of Subtasks
 
-# SubTask 1: Slice the Lettuce. 
-    Skills Required: GoToObject, PickupObject, SliceObject, PutObject
-    Related Objects: knife(Location=diningTable), lettuce(Location=diningTable)
+### Initial Condition Analysis (Based on Already Achieved Effects):
+1. Robot1 is at the play_zone.
+2. Robot1 is hand-empty.
+3. Drawer1 is already full.
 
-# Initial condition analyze (Based on Already Achieved Effects):
-#1. Robot not holding tomate
-#2. Robot not at tomate location
-#3. Robot not holding knife
+### SubTask 1: Place the Block on the Shelf.
+   Skills Required: GoToObject, PickUp, PutObject
+   Related Objects: block(Location=floor), shelf(Location=corner)
 
-# SubTask 2: Slice the Tomato. 
-    Skills Required: GoToObject, PickupObject, SliceObject, PutObject
-    Related Objects: knife(Location=diningTable), tomato(Location=counterTop)
+   - Preconditions: hand-empty(robot1), at(robot1, play_zone)
+   - Effects: at-location(block, shelf), hand-empty(robot1)
 
-#1. Robot not holding bread
-#2. Robot not at  bread location.
+### SubTask 2: Put the Ball in the Drawer.
+   Skills Required: GoToObject, PickUp, PutObject
+   Related Objects: ball(Location=floor), drawer2(Location=living_room)
 
-# SubTask 3: Slice the Bread. 
-    Skills Required: GoToObject, PickupObject, SliceObject, PutObject
-    Related Objects: knife(Location=diningTable), bread(Location=diningTable)
+   - Preconditions: hand-empty(robot1)
+   - Effects: in-box(ball, drawer2), hand-empty(robot1)
 
-#1. Robot not holding plate
-#2. Robot not at plate location
-
-# SubTask 4: Wash the Plate. 
-    Skills Required: GoToObject, PickupObject, PutObject, SwitchOn, SwitchOff
-    Related Object: plate(Location=counterTop), sink(Location=floor)
-
-#1. Robot not holding bread, lettuce, or tomato
-#2. Robot holding plate
-#3. Robot not at bread, lettuce, or tomato location
-
-# SubTask 5: Assemble the Sandwich. 
-    Skills Required: GoToObject, PickupObject, PutObject
-    Related Object: plate(Location=counterTop), bread(Location=diningTable), lettuce(Location=diningTable), tomato(Location=counterTop)
-
-# Task Make a sandwich with sliced lettuce, sliced tomato, sliced bread and serve it on a washed plate is done.
+## Case 2 (example) done.

@@ -1,0 +1,54 @@
+# Already Achieved (from successful subtasks):
+- Subtask 1: (at robot1 drawer); (at robot1 fork); (at-location fork drawer); (holding robot1 fork); (not (holding robot1 fork)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 2: (at robot1 drawer); (at robot1 spoon); (at-location spoon drawer); (holding robot1 spoon); (not (holding robot1 spoon)); (not (inaction robot1)); (not (object-open robot1 drawer)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 3: (at robot1 drawer); (at robot1 knife); (holding robot1 knife); (object-open robot1 drawer)
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot holding knife
+#2. Robot not at alternativeDrawer location
+#3. alternativeDrawer is initially closed
+
+# SubTask 1: Store the Knife in an Alternative Location
+    Skills Required: GoToObject, PutObject, CloseObject
+    Related Objects: knife(Location=robot1), alternativeDrawer(Location=floor)
+
+GoToObject(robot1, alternativeDrawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 alternativeDrawer)
+
+OpenObject(robot1, alternativeDrawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 alternativeDrawer)
+   Effects:
+     (object-open robot1 alternativeDrawer)
+
+PutObject(robot1, knife, alternativeDrawer)
+   Preconditions:
+     (holding robot1 knife)
+     (at robot1 alternativeDrawer)
+     (not (inaction robot1))
+     (object-open robot1 alternativeDrawer)
+   Effects:
+     (at-location knife alternativeDrawer)
+     (not (holding robot1 knife))
+
+CloseObject(robot1, alternativeDrawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 alternativeDrawer)
+     (object-open robot1 alternativeDrawer)
+   Effects:
+     (object-close robot1 alternativeDrawer)
+
+Goal condition: 
+(at-location knife alternativeDrawer)
+(object-close robot1 alternativeDrawer)
+
+# Task Store the Knife in an Alternative Location is done.

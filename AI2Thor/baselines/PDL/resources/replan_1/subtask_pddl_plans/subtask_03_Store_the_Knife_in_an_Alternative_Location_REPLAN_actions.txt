@@ -1,0 +1,4 @@
+gotoobject robot1 alternativedrawer (1)
+openobject robot1 alternativedrawer (1)
+drophandobject robot1 knife alternativedrawer (1)
+closeobject robot1 alternativedrawer (1)

@@ -1,0 +1,66 @@
+# Already Achieved (from successful subtasks):
+- Subtask 1: (at robot1 drawer); (at robot1 fork); (at-location fork drawer); (holding robot1 fork); (not (holding robot1 fork)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 2: (at robot1 drawer); (at robot1 spoon); (at-location spoon drawer); (holding robot1 spoon); (not (holding robot1 spoon)); (not (inaction robot1)); (not (object-open robot1 drawer)); (object-close robot1 drawer); (object-open robot1 drawer)
+- Subtask 3: (at robot1 drawer); (at robot1 knife); (holding robot1 knife); (object-open robot1 drawer)
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+#1. Robot not holding any object
+#2. ButterKnife is on the counterTop
+#3. Drawer is closed
+
+# SubTask 2: Store the ButterKnife. 
+    Skills Required: GoToObject, PickupObject, OpenObject, PutObject, CloseObject
+    Related Objects: butterKnife(Location=counterTop), drawer(Location=floor)
+
+GoToObject(robot1, butterKnife)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 butterKnife)
+
+PickupObject(robot1, butterKnife, counterTop)
+   Preconditions:
+     (at-location butterKnife counterTop)
+     (at robot1 butterKnife)
+     (not (inaction robot1))
+   Effects:
+     (holding robot1 butterKnife)
+
+GoToObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+   Effects:
+     (at robot1 drawer)
+
+OpenObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+   Effects:
+     (object-open robot1 drawer)
+
+PutObject(robot1, butterKnife, drawer)
+   Preconditions:
+     (holding robot1 butterKnife)
+     (at robot1 drawer)
+     (not (inaction robot1))
+     (object-open robot1 drawer)
+   Effects:
+     (at-location butterKnife drawer)
+     (not (holding robot1 butterKnife))
+
+CloseObject(robot1, drawer)
+   Preconditions:
+     (not (inaction robot1))
+     (at robot1 drawer)
+     (object-open robot1 drawer)
+   Effects:
+     (object-close robot1 drawer)
+
+Goal condition: 
+(at-location butterKnife drawer)
+(hand-empty robot1)

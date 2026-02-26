@@ -24,6 +24,7 @@ REPO_ROOT = SCRIPT_DIR.parent.parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts.warning=false")
 import cv2
 import numpy as np
 from ai2thor.controller import Controller
@@ -565,14 +566,28 @@ class MultiRobotExecutor:
         if not os.path.exists(self.plans_path):
             raise FileNotFoundError(f"Plans directory not found: {self.plans_path}")
 
+        # [Fix D] 이전 로드 잔재 제거: 재로드 시 구버전 subtask 실행 방지
+        self.subtask_plans = {}
+
         plan_files = [f for f in os.listdir(self.plans_path) if f.endswith("_actions.txt")]
         plan_actions: Dict[int, List[str]] = {}
 
-        for plan_file in sorted(plan_files):
+        # [Fix C] assignment에 있는 subtask_id만 로드
+        # 구버전 REPLAN 파일(예: subtask_04_ButterKnife_REPLAN)이 DAG에서 제거됐어도
+        # 디렉토리에 파일이 남아있으면 기존에는 무조건 로드 → 현재 assignment 기준 필터링
+        valid_ids = set(self.assignment.keys()) if self.assignment else None
+
+        # REPLAN 파일을 원본보다 나중에 로드해 같은 subtask_id에 대해 덮어쓰도록 함
+        # key=(0=원본, 1=REPLAN, 파일명): 동일 ID에서 REPLAN이 항상 우선
+        for plan_file in sorted(plan_files, key=lambda f: (1 if "_REPLAN" in f else 0, f)):
             m = re.search(r"subtask_(\d+)", plan_file)
             if not m:
                 continue
             subtask_id = int(m.group(1))
+
+            # [Fix C] 현재 assignment에 없는 subtask는 건너뜀 (재로드 후 구버전 파일 무시)
+            if valid_ids is not None and subtask_id not in valid_ids:
+                continue
 
             plan_path = os.path.join(self.plans_path, plan_file)
             with open(plan_path, "r") as f:
@@ -1566,10 +1581,10 @@ class MultiRobotExecutor:
                     # 대기 끝: yield가 효과 없었음
                     blocker_id = yield_active_for
                     ineffective_yield_counts[blocker_id] = ineffective_yield_counts.get(blocker_id, 0) + 1
-                    # 2회 이상 yield 실패 + 주변에 2대 이상 → 우회 기동
+                    # 2회 이상 yield 실패 + 주변에 1대 이상 → 우회 기동 (2-로봇 시나리오 포함)
                     if ineffective_yield_counts[blocker_id] >= 2:
                         nearby_count = self._count_nearby_robots(agent_id, threshold=1.0)
-                        if nearby_count >= 2:
+                        if nearby_count >= 1:
                             self._try_detour(agent_id)
                             ineffective_yield_counts[blocker_id] = 0
                             yield_active_for = None
@@ -1855,7 +1870,13 @@ class MultiRobotExecutor:
             self._fail_current_subtask(f"PutObject: cannot find receptacle '{recp_pattern}'")
             return
 
-        #print(f"[Robot{agent_id+1}] Putting on {recp_id}")
+        # [DEBUG] receptacle 상태 출력 (failure 원인 파악용)
+        for _dbg_obj in self.controller.last_event.metadata.get("objects", []):
+            if _dbg_obj.get("objectId") == recp_id:
+                _contained = _dbg_obj.get("receptacleObjectIds", [])
+                _is_open = _dbg_obj.get("isOpen", False)
+                print(f"[PutObject-DEBUG] recp='{recp_pattern}'({recp_id}) open={_is_open} contains={[c.split('|')[0] for c in _contained]}")
+                break
         # checker: put 전 inventory 저장 (put 후엔 비어있으므로)
         self._update_inventory(agent_id)
         inv_before_put = self.inventory[agent_id]
@@ -2489,17 +2510,38 @@ class MultiRobotExecutor:
         try:
             self._subtask_completed_actions[plan.subtask_id] = []
 
+            def _is_retryable_nav_error(msg: str) -> bool:
+                m = (msg or "").lower()
+                return (
+                    "gotoobject: navigation timeout" in m
+                    or "gotoobject: failed to reach" in m
+                )
+
             for i, action in enumerate(plan.actions):
                 # 이미 실패한 서브태스크의 남은 액션은 건너뜀
                 if self._subtask_failed.get(plan.subtask_id, False):
                     remaining = len(plan.actions) - i
                     print(f"[Subtask {plan.subtask_id}] Aborting remaining {remaining} action(s) due to earlier failure")
                     break
-                print(f"[Robot{plan.robot_id}] Action {i+1}/{len(plan.actions)}: {action}")
-                self._execute_pddl_action(agent_id, action)
-                # 액션 실행 후 실패가 발생하지 않았으면 완료 목록에 추가
-                if not self._subtask_failed.get(plan.subtask_id, False):
-                    self._subtask_completed_actions[plan.subtask_id].append(action)
+                max_retries = 3
+                attempt = 0
+                while attempt < max_retries:
+                    print(f"[Robot{plan.robot_id}] Action {i+1}/{len(plan.actions)}: {action}")
+                    self._execute_pddl_action(agent_id, action)
+                    # 액션 실행 후 실패가 발생하지 않았으면 완료 목록에 추가
+                    if not self._subtask_failed.get(plan.subtask_id, False):
+                        self._subtask_completed_actions[plan.subtask_id].append(action)
+                        break
+
+                    err = self._subtask_last_error.get(plan.subtask_id, "")
+                    if _is_retryable_nav_error(err) and attempt < (max_retries - 1):
+                        attempt += 1
+                        # 길막/일시적 네비게이션 실패는 즉시 subtask 실패로 확정하지 않고 재시도
+                        self._subtask_failed[plan.subtask_id] = False
+                        self._subtask_last_error.pop(plan.subtask_id, None)
+                        time.sleep(0.3)
+                        continue
+                    break
 
             success = not self._subtask_failed.get(plan.subtask_id, False)
             err = self._subtask_last_error.get(plan.subtask_id, "")
@@ -2553,7 +2595,7 @@ class MultiRobotExecutor:
 
         # 병렬 그룹별로 서브태스크 그룹화
         groups_to_plans: Dict[int, List[SubtaskPlan]] = defaultdict(list)
-        for sid, p in self.subtask_plans.items():
+        for p in self.subtask_plans.values():
             groups_to_plans[p.parallel_group].append(p)
 
         print("=" * 60)
@@ -2652,13 +2694,16 @@ class MultiRobotExecutor:
         else:
             self._feedback_state_store = None
 
-        agent_count = max(self.assignment.values()) if self.assignment else 1
-        self.start_ai2thor(floor_plan=floor_plan, agent_count=agent_count)
+        # configured_agent_count 우선 사용 (--num-agents 값); 없으면 assignment 최댓값 fallback
+        agent_count = getattr(self, 'configured_agent_count', None) \
+                      or (max(self.assignment.values()) if self.assignment else 1)
+        spawn_pos = getattr(self, 'saved_spawn_positions', None)
+        self.start_ai2thor(floor_plan=floor_plan, agent_count=agent_count, spawn_positions=spawn_pos)
         if task_description:
             self._init_checker(task_description, self.scene_name)
 
         groups_to_plans: Dict[int, List[SubtaskPlan]] = defaultdict(list)
-        for sid, p in self.subtask_plans.items():
+        for p in self.subtask_plans.values():
             groups_to_plans[p.parallel_group].append(p)
 
         print("=" * 60)
@@ -2674,7 +2719,7 @@ class MultiRobotExecutor:
             while True:
                 # 매 반복마다 groups_to_plans를 최신 상태로 재구성
                 groups_to_plans = defaultdict(list)
-                for sid, sp in self.subtask_plans.items():
+                for sp in self.subtask_plans.values():
                     groups_to_plans[sp.parallel_group].append(sp)
 
                 # 아직 완료되지 않은 그룹 중 가장 작은 gid 선택
@@ -2735,23 +2780,16 @@ class MultiRobotExecutor:
 
                     if replan_success:
                         replanned = True
-                        failed_sid = p.subtask_id
-                        new_plan = self.subtask_plans.get(failed_sid)
-                        if new_plan:
-                            print(f"[Feedback] Re-executing subtask {failed_sid} with new plan ({len(new_plan.actions)} actions)")
-                            self._subtask_failed[failed_sid] = False
-                            t2 = threading.Thread(target=self._run_subtask, args=(new_plan,), daemon=True)
-                            t2.start()
-                            t2.join()
-                            self._drain_action_queue()
+                        # 즉시 재실행 제거: DAG 의존성 순서 유지하며 외부 루프에서 자동 재실행
+                        # (in-place 재실행 시 동일 subtask 이중 시도 문제 방지)
 
                 print(f"[Group {gid}] Completed")
 
                 if replanned:
-                    # 재계획 후 교체된 subtask_plans 기반으로 그룹 재구성
+                    # 재계획 후 교체된 subtask_plans 기반으로 그룹 재구성 (의존성 순서 유지)
                     completed_groups.clear()
                     replanned_groups: Dict[int, list] = defaultdict(list)
-                    for _s, _sp in self.subtask_plans.items():
+                    for _sp in self.subtask_plans.values():
                         replanned_groups[_sp.parallel_group].append(_sp)
                     for prev_gid, prev_plans in replanned_groups.items():
                         if all(

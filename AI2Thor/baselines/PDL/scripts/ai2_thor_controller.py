@@ -1,9 +1,11 @@
 import math
+import os
 import re
 import shutil
 import subprocess
 import time
 import threading
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts.warning=false")
 import cv2
 import numpy as np
 from ai2thor.controller import Controller

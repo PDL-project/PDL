@@ -1,0 +1,1 @@
+pickupobject robot1 knife floor (1)

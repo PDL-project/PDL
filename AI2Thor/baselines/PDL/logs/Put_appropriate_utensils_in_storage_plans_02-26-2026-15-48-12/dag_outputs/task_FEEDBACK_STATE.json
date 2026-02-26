@@ -1,0 +1,98 @@
+{
+  "1": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 fork)",
+      "(holding robot1 fork)",
+      "(at robot1 drawer)",
+      "(object-open robot1 drawer)",
+      "(not (object-close robot1 drawer))",
+      "(at-location fork drawer)",
+      "(not (holding robot1 fork))",
+      "(object-close robot1 drawer)",
+      "(not (object-open robot1 drawer))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 fork (1)",
+      "pickupobject robot1 fork countertop (1)",
+      "gotoobject robot1 drawer1 (1)",
+      "openobject robot1 drawer1 (1)",
+      "drophandobject robot1 fork drawer1 (1)",
+      "closeobject robot1 drawer1 (1)"
+    ]
+  },
+  "2": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 spoon)",
+      "(holding robot1 spoon)",
+      "(at robot1 drawer)",
+      "(object-open robot1 drawer)",
+      "(not (object-close robot1 drawer))",
+      "(at-location spoon drawer)",
+      "(not (holding robot1 spoon))",
+      "(object-close robot1 drawer)",
+      "(not (object-open robot1 drawer))"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 spoon (1)",
+      "pickupobject robot1 spoon countertop (1)",
+      "gotoobject robot1 drawer1 (1)",
+      "openobject robot1 drawer1 (1)",
+      "drophandobject robot1 spoon drawer1 (1)",
+      "closeobject robot1 drawer1 (1)"
+    ]
+  },
+  "3": {
+    "state": "FAILED",
+    "error_message": "InvalidOperationException: Agent hand has something in it already! Can't pick up anything else. trace:   at UnityStandardAssets.Characters.FirstPerson.PhysicsRemoteFPSAgentController.pickupObject (SimObjPhysics target, System.Boolean forceAction, System.Boolean manualInteract, System.Boolean markActionFinished) [0x0003c] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at UnityStandardAssets.Characters.FirstPerson.PhysicsRemoteFPSAgentController.PickupObject (System.String objectId, System.Boolean forceAction, System.Boolean manualInteract) [0x00009] in <40d6a6c54fa349fab67f7470c3432f83>:0 \n  at (wrapper managed-to-native) System.Reflection.MonoMethod.InternalInvoke(System.Reflection.MonoMethod,object,object[],System.Exception&)\n  at System.Reflection.MonoMethod.Invoke (System.Object obj, System.Reflection.BindingFlags invokeAttr, System.Reflection.Binder binder, System.Object[] parameters, System.Globalization.CultureInfo culture) [0x00032] in <695d1cc93cca45069c528c15c9fdd749>:0 ",
+    "effects": null,
+    "completed_actions": [
+      "gotoobject robot1 knife (1)"
+    ]
+  },
+  "4": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 butterKnife)",
+      "(holding robot1 butterKnife)",
+      "(at robot1 drawer)",
+      "(object-open robot1 drawer)",
+      "(at-location butterKnife drawer)",
+      "(not (holding robot1 butterKnife))",
+      "(object-close robot1 drawer)"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 butterknife (1)",
+      "pickupobject robot1 butterknife countertop (1)",
+      "gotoobject robot1 drawer1 (1)",
+      "openobject robot1 drawer1 (1)",
+      "drophandobject robot1 butterknife drawer1 (1)",
+      "closeobject robot1 drawer1 (1)"
+    ]
+  },
+  "5": {
+    "state": "SUCCESS",
+    "error_message": null,
+    "effects": [
+      "(at robot1 spatula)",
+      "(holding robot1 spatula)",
+      "(at robot1 drawer)",
+      "(object-open robot1 drawer)",
+      "(at-location spatula drawer)",
+      "(not (holding robot1 spatula))",
+      "(object-close robot1 drawer)"
+    ],
+    "completed_actions": [
+      "gotoobject robot1 spatula (1)",
+      "pickupobject robot1 spatula countertop (1)",
+      "gotoobject robot1 drawer1 (1)",
+      "openobject robot1 drawer1 (1)",
+      "drophandobject robot1 spatula drawer1 (1)",
+      "closeobject robot1 drawer1 (1)"
+    ]
+  }
+}

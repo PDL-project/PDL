@@ -1,0 +1,92 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "name": "subtask_01_Store_the_Fork",
+      "objects": [
+        "robot1",
+        "fork",
+        "drawer1",
+        "counterTop",
+        "floor"
+      ],
+      "preconds": [
+        "Robot is not holding any utensils.",
+        "Robot is not at utensil locations.",
+        "Fork is on the counterTop.",
+        "Drawer is on the floor."
+      ],
+      "effects": [
+        "Fork is stored in the drawer.",
+        "Drawer is closed.",
+        "Robot is not holding the fork."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "subtask_02_Store_the_Spoon_REPLAN",
+      "objects": [
+        "robot1",
+        "spoon",
+        "drawer1",
+        "countertop"
+      ],
+      "preconds": [
+        "Robot is not in action",
+        "Robot is at the kitchen",
+        "Spoon is on the countertop",
+        "Drawer is on the floor",
+        "Robot is close to the drawer",
+        "Robot is not holding the spoon"
+      ],
+      "effects": [
+        "Spoon is in the drawer",
+        "Robot is close to the drawer",
+        "Robot is not holding the spoon"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "subtask_03_Store_the_ButterKnife_REPLAN",
+      "objects": [
+        "robot1",
+        "butterknife",
+        "countertop",
+        "drawer1"
+      ],
+      "preconds": [
+        "The butterknife is on the countertop.",
+        "The drawer1 is closed."
+      ],
+      "effects": [
+        "The butterknife is stored inside drawer1.",
+        "The drawer1 is closed."
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2
+    },
+    {
+      "from_id": 2,
+      "to_id": 3
+    },
+    {
+      "from_id": 1,
+      "to_id": 3
+    }
+  ],
+  "parallel_groups": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ],
+    "2": [
+      3
+    ]
+  }
+}
