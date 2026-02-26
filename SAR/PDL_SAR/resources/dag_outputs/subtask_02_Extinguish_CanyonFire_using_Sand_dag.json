@@ -20,7 +20,7 @@
       "objects": [
         "canyonfire_region_1"
       ],
-      "parallel_group": 1
+      "parallel_group": 0
     },
     {
       "id": 2,
@@ -31,34 +31,32 @@
         "canyonfire_region_1",
         "sand"
       ],
-      "parallel_group": 2
+      "parallel_group": 1
     }
   ],
   "edges": [
     {
       "from_id": 0,
-      "to_id": 1,
+      "to_id": 2,
+      "dependency_type": "binding"
+    },
+    {
+      "from_id": 0,
+      "to_id": 2,
       "dependency_type": "causal"
     },
     {
       "from_id": 1,
       "to_id": 2,
       "dependency_type": "causal"
-    },
-    {
-      "from_id": 0,
-      "to_id": 2,
-      "dependency_type": "binding"
     }
   ],
   "parallel_groups": {
     "0": [
-      0
-    ],
-    "1": [
+      0,
       1
     ],
-    "2": [
+    "1": [
       2
     ]
   },

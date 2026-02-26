@@ -31,7 +31,11 @@ class SceneInitializer(BaseSceneInitializer):
                     Arg(position=(25,4)),
                     Arg(position=(25,16)),
                     Arg(position=(25,14)),
-                    Arg(position=(25,25))
+                    Arg(position=(25,25)),
+                    Arg(position=(3,3)),
+                    Arg(position=(3,27)),
+                    Arg(position=(27,3)),
+                    Arg(position=(27,27))
                     ]
                 }
         self.task_timeout=35

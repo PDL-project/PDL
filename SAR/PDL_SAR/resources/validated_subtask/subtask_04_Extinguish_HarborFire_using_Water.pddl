@@ -1,5 +1,5 @@
 (define (problem extinguish-harborfire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -15,7 +15,6 @@
     (is-reservoir ReservoirDelta)
     (is-region HarborFire_Region_1)
     (is-supply Water)
-    (is-fire HarborFire)
     (fire-active HarborFire_Region_1)
     (region-of HarborFire_Region_1 HarborFire)
     (supply-for-fire Water HarborFire)

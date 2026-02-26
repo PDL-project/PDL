@@ -1,5 +1,5 @@
 (define (problem extinguish-plainfire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -11,7 +11,7 @@
 
   (:init
     (= (total-cost) 0)
-    (at robot1 ReservoirDelta)
+    (at robot1 kitchen)
     (is-reservoir ReservoirDelta)
     (is-region PlainFire_Region_1)
     (is-supply Water)
@@ -19,6 +19,7 @@
     (region-of PlainFire_Region_1 PlainFire)
     (supply-for-fire Water PlainFire)
     (has-resource ReservoirDelta Water)
+    (is-fire PlainFire)
   )
 
   (:goal (and

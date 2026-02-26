@@ -46,7 +46,7 @@ def main():
     print(f"  Objects: {all_object_names}")
 
     # --- SARExecutor 실행 ---
-    from sar_executor import SARExecutor
+    from sar_executor import SARExecutor, _fires_still_active
 
     sar_pdl_root = str(_PDLSAR_ROOT)
     executor = SARExecutor(sar_pdl_root)
@@ -74,7 +74,13 @@ def main():
             coverage       = checker.get_coverage()
             transport_rate = checker.get_transport_rate()
             finished       = checker.check_success()
-            balance        = executor._compute_balance_metric()
+            # Final state check: verify ALL fires (including spread regions) are out
+            # still_active = _fires_still_active(sar_env)
+            # if still_active:
+            #     finished = False
+            #     for fname in still_active:
+            #         print(f"  [Final State] Fire '{fname}' still active — Fail")
+            balance        = executor._compute_balance_metric(finished=checker.check_success())
             exec_rate      = executor._compute_exec_rate()
             print(
                 f"\n  Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "

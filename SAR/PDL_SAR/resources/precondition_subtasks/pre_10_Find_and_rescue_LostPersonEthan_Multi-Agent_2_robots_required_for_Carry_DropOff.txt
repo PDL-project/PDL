@@ -1,0 +1,83 @@
+# Task Description: Find and rescue LostPersonEthan. [Multi-Agent: 2 robots required for Carry+DropOff]
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not explored
+# 2. LostPersonEthan location unknown
+# 3. Robot not carrying anyone
+
+# SubTask 10: Find and rescue LostPersonEthan. [Multi-Agent: 2 robots required for Carry+DropOff]
+    Skills Required: Explore, GoToObject, Carry, DropOff
+    Related Objects: LostPersonEthan(type=Person), DepositFacility(type=Deposit)
+    Note: Moving a person requires 2 agents collaborating simultaneously.
+
+Explore(robot1)
+   Preconditions:
+     (not (person-found LostPersonEthan))
+   Effects:
+     (person-found LostPersonEthan)
+     (increase (total-cost) 5)
+
+GoToObject(robot1, LostPersonEthan)
+   Preconditions:
+     (person-found LostPersonEthan)
+   Effects:
+     (at robot1 LostPersonEthan)
+
+GoToObject(robot2, LostPersonEthan)
+   Preconditions:
+     (person-found LostPersonEthan)
+   Effects:
+     (at robot2 LostPersonEthan)
+
+Carry(robot1, LostPersonEthan)
+   Preconditions:
+     (at robot1 LostPersonEthan)
+     (person-found LostPersonEthan)
+     (not (carrying robot1 LostPersonEthan))
+   Effects:
+     (carrying robot1 LostPersonEthan)
+
+Carry(robot2, LostPersonEthan)
+   Preconditions:
+     (at robot2 LostPersonEthan)
+     (person-found LostPersonEthan)
+     (not (carrying robot2 LostPersonEthan))
+   Effects:
+     (carrying robot2 LostPersonEthan)
+
+GoToObject(robot1, DepositFacility)
+   Preconditions:
+     (carrying robot1 LostPersonEthan)
+   Effects:
+     (at robot1 DepositFacility)
+
+GoToObject(robot2, DepositFacility)
+   Preconditions:
+     (carrying robot2 LostPersonEthan)
+   Effects:
+     (at robot2 DepositFacility)
+
+DropOff(robot1, LostPersonEthan, DepositFacility)
+   Preconditions:
+     (at robot1 DepositFacility)
+     (carrying robot1 LostPersonEthan)
+   Effects:
+     (not (carrying robot1 LostPersonEthan))
+     (person-rescued LostPersonEthan)
+
+DropOff(robot2, LostPersonEthan, DepositFacility)
+   Preconditions:
+     (at robot2 DepositFacility)
+     (carrying robot2 LostPersonEthan)
+   Effects:
+     (not (carrying robot2 LostPersonEthan))
+     (person-rescued LostPersonEthan)
+
+Goal condition:
+(person-rescued LostPersonEthan)
+
+# Task Find and rescue LostPersonEthan is done.

@@ -1,5 +1,5 @@
 (define (problem extinguish-moorfire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -15,7 +15,6 @@
     (is-reservoir ReservoirSierra)
     (is-region MoorFire_Region_1)
     (is-supply Sand)
-    (is-fire MoorFire)
     (fire-active MoorFire_Region_1)
     (region-of MoorFire_Region_1 MoorFire)
     (supply-for-fire Sand MoorFire)

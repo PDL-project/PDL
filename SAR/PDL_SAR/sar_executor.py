@@ -197,7 +197,9 @@ class SARExecutor:
         if os.path.exists(assignment_file):
             with open(assignment_file) as f:
                 data = json.load(f)
-            self.assignment = {int(k): int(v) for k, v in data.get("assignment", {}).items()}
+            def _parse_rid(v: Any):
+                return [int(x) for x in v] if isinstance(v, list) else int(v)
+            self.assignment = {int(k): _parse_rid(v) for k, v in data.get("assignment", {}).items()}
         else:
             print(f"[SARExecutor] Warning: assignment file not found: {assignment_file}")
             self.assignment = {}
@@ -358,6 +360,9 @@ class SARExecutor:
             # subtask_id -> failed flag + error
             subtask_failed: Dict[int, Optional[str]] = {sid: None for sid in group_sids}
 
+            # subtask_id -> number of agents assigned
+            subtask_agent_count: Dict[int, int] = {}
+
             for sid in group_sids:
                 sar_plan = self._build_sar_plan(sid)
                 if not sar_plan:
@@ -371,12 +376,35 @@ class SARExecutor:
                     subtask_failed[sid] = "No robot assigned to subtask"
                     continue
 
-                agent_idx = robot_to_idx(robot_id)
-                agent_queues[agent_idx] = deque(sar_plan)
-                agent_subtask[agent_idx] = sid
+                rids = robot_id if isinstance(robot_id, list) else [robot_id]
+                subtask_agent_count[sid] = len(rids)
+
+                # Detect agent conflict: same agent assigned to multiple subtasks in same group
+                conflict_msg = None
+                for rid in rids:
+                    aidx = robot_to_idx(rid)
+                    existing_sid = agent_subtask[aidx]
+                    if existing_sid is not None:
+                        conflict_msg = (
+                            f"Agent conflict: {agent_names[aidx]} already assigned to "
+                            f"subtask {existing_sid} in the same parallel group"
+                        )
+                        break
+                if conflict_msg:
+                    print(f"[SARExecutor] Subtask {sid}: SKIPPED — {conflict_msg}")
+                    subtask_failed[sid] = conflict_msg
+                    continue
+
+                for rid in rids:
+                    aidx = robot_to_idx(rid)
+                    agent_queues[aidx] = deque(sar_plan)   # same plan for every assigned agent
+                    agent_subtask[aidx] = sid
+
+                label = "+".join(agent_names[robot_to_idx(r)] for r in rids)
+                tag   = " [multi-agent]" if len(rids) > 1 else ""
                 print(
-                    f"[SARExecutor]  Subtask {sid} -> Agent {agent_names[agent_idx]}"
-                    f" ({len(sar_plan)} actions)"
+                    f"[SARExecutor]  Subtask {sid} -> Agent {label}"
+                    f" ({len(sar_plan)} actions){tag}"
                 )
                 for act in sar_plan:
                     print(f"    {act}")
@@ -419,7 +447,9 @@ class SARExecutor:
                             subtask_failed[sid] = f"Environment error: {e}"
                     break
 
-                # Process results for each agent
+                step_critical_fail: Dict[int, str] = {}   # sid -> error msg
+                step_critical_ok:   Set[int]       = set()  # sids with ≥1 critical success
+
                 for agent_idx, (act, sid, success) in enumerate(
                     zip(actions_this_step, step_agent_sids, successes)
                 ):
@@ -431,22 +461,38 @@ class SARExecutor:
                         self.success_exec += 1
                         self.agent_success_counts[agent_idx] += 1
                         subtask_completed[sid].append(act)
+                        if _is_critical_action(act):
+                            step_critical_ok.add(sid)
                     else:
-                        # Non-critical failures (e.g., already extinguished region)
-                        # are logged but don't abort the subtask immediately
                         print(
                             f"[SARExecutor]  {agent_names[agent_idx]} action FAILED: {act}"
                         )
                         subtask_completed[sid].append(f"FAILED:{act}")
-
-                        # If it's a critical action (UseSupply with wrong type, Carry, DropOff)
-                        # abort this subtask
                         if _is_critical_action(act):
-                            subtask_failed[sid] = (
-                                f"Critical action failed: {act}"
+                            is_multi_rescue_fail = (
+                                subtask_agent_count.get(sid, 1) > 1
+                                and not act.startswith("DropOff(")
                             )
-                            # Clear remaining queue for this agent
-                            agent_queues[agent_idx].clear()
+                            if is_multi_rescue_fail:
+                                if subtask_failed.get(sid) is None:
+                                    subtask_failed[sid] = (
+                                        f"Multi-agent rescue failed: "
+                                        f"{agent_names[agent_idx]} could not complete {act}"
+                                    )
+                                for aidx, asid in agent_subtask.items():
+                                    if asid == sid:
+                                        agent_queues[aidx].clear()
+                            else:
+                                step_critical_fail[sid] = f"Critical action failed: {act}"
+                                agent_queues[agent_idx].clear()
+
+                # Abort only when no agent of that subtask succeeded at a critical action
+                for sid, error in step_critical_fail.items():
+                    if sid not in step_critical_ok:
+                        subtask_failed[sid] = error
+                        for aidx, asid in agent_subtask.items():
+                            if asid == sid:
+                                agent_queues[aidx].clear()
 
             # Build results for this group
             for sid in group_sids:
@@ -475,10 +521,11 @@ class SARExecutor:
                             new_plan = self._build_sar_plan(sid)
                             robot_id = self.assignment.get(sid)
                             if robot_id is not None and new_plan:
-                                agent_idx = robot_to_idx(robot_id)
-                                # Re-execute single subtask
+                                rids = robot_id if isinstance(robot_id, list) else [robot_id]
+                                agent_idx = robot_to_idx(rids[0])
+                                # Re-execute subtask (use all assigned agents for multi-agent)
                                 retry_result = self._execute_single_subtask(
-                                    sar_env, sid, agent_idx, new_plan, num_agents, agent_names, task_timeout
+                                    sar_env, sid, rids, new_plan, num_agents, agent_names, task_timeout
                                 )
                                 self._subtask_results[sid] = retry_result
 
@@ -488,47 +535,79 @@ class SARExecutor:
         self,
         sar_env,
         subtask_id: int,
-        agent_idx: int,
+        agent_idxs,
         sar_plan: List[str],
         num_agents: int,
         agent_names: List[str],
         task_timeout: int,
     ) -> SubTaskExecutionResult:
-        """Execute a single subtask (used for replanning retries)."""
-        queue = deque(sar_plan)
+        """Execute a single subtask.
+        used for replanning retries"""
+        idxs: List[int] = agent_idxs if isinstance(agent_idxs, list) else [agent_idxs]
+        queues = {idx: deque(sar_plan) for idx in idxs}
         completed: List[str] = []
         error: Optional[str] = None
 
         step = 0
-        while queue:
+        while any(q for q in queues.values()):
             step += 1
             if step > task_timeout:
                 error = f"Retry timeout after {task_timeout} steps"
                 break
 
-            act = queue.popleft()
             actions_this_step = ["NoOp()"] * num_agents
-            actions_this_step[agent_idx] = act
+            for idx, q in queues.items():
+                if q:
+                    actions_this_step[idx] = q.popleft()
 
             try:
                 _, successes = sar_env.step(actions_this_step)
-                success = successes[agent_idx]
             except Exception as e:
                 error = f"Environment error on retry: {e}"
                 break
 
-            self.total_exec += 1
-            if success:
-                self.success_exec += 1
-                if agent_idx < len(self.agent_success_counts):
-                    self.agent_success_counts[agent_idx] += 1
-                completed.append(act)
-            else:
-                print(f"[SARExecutor] Retry — {agent_names[agent_idx]} FAILED: {act}")
-                completed.append(f"FAILED:{act}")
-                if _is_critical_action(act):
-                    error = f"Critical action failed on retry: {act}"
-                    break
+            step_crit_fail: Dict[str, bool] = {}
+            step_crit_ok = False
+            is_multi_agent_retry = len(idxs) > 1
+            abort_now = False
+            for idx in idxs:
+                act = actions_this_step[idx]
+                if act == "NoOp()":
+                    continue
+                success = successes[idx]
+                self.total_exec += 1
+                if success:
+                    self.success_exec += 1
+                    if idx < len(self.agent_success_counts):
+                        self.agent_success_counts[idx] += 1
+                    completed.append(act)
+                    if _is_critical_action(act):
+                        step_crit_ok = True
+                else:
+                    print(f"[SARExecutor] Retry — {agent_names[idx]} FAILED: {act}")
+                    completed.append(f"FAILED:{act}")
+                    if _is_critical_action(act):
+                        is_multi_rescue_fail = (
+                            is_multi_agent_retry and not act.startswith("DropOff(")
+                        )
+                        if is_multi_rescue_fail:
+                            error = (
+                                f"Multi-agent rescue failed on retry: "
+                                f"{agent_names[idx]} could not complete {act}"
+                            )
+                            for q in queues.values():
+                                q.clear()
+                            abort_now = True
+                            break
+                        else:
+                            step_crit_fail[act] = True
+                            queues[idx].clear()
+
+            if abort_now:
+                break
+            if step_crit_fail and not step_crit_ok:
+                error = f"Critical action failed on retry: {next(iter(step_crit_fail))}"
+                break
 
         return SubTaskExecutionResult(
             subtask_id=subtask_id,
@@ -541,13 +620,19 @@ class SARExecutor:
     # Evaluation metrics
     # ------------------------------------------------------------------
 
-    def _compute_balance_metric(self) -> float:
-        """balance = min(x_i) / max(x_i), x_i = agent i의 성공 액션 수.
-        모든 서브태스크가 성공한 경우에만 계산, 그렇지 않으면 0."""
+    def _compute_balance_metric(self, finished: Optional[bool] = None) -> float:
+        """
+        balance = min(x_i) / max(x_i), x_i = agent i의 성공 액션 수.
+        모든 서브태스크가 성공한 경우에만 계산, 그렇지 않으면 0.
+        """
+        if finished is not None and not finished:
+            return 0.0
+
         if self._subtask_results and any(
             not r.success for r in self._subtask_results.values()
         ):
             return 0.0
+
         active = [c for c in self.agent_success_counts if c > 0]
         if not active:
             return 0.0
@@ -593,6 +678,22 @@ class SARExecutor:
 # -----------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------
+
+def _fires_still_active(sar_env) -> List[str]:
+    """
+    Used for a final-state check after execution completes to verify
+    that spread fire regions are also extinguished.
+    """
+    try:
+        obs = sar_env.controller.get_observation(0)
+        active = []
+        for obj in obs.get('global_obs', []):
+            if obj.get('type') == 'Fire' and obj.get('average_intensity', 'None') != 'None':
+                active.append(obj['name'])
+        return active
+    except Exception:
+        return []
+
 
 def _is_critical_action(sar_action: str) -> bool:
     """Return True if a failed action should abort the subtask.

@@ -6,7 +6,7 @@
 
 # Initial condition analyze due to previous subtask:
 # 1. Robot not at any reservoir
-# 2. Robot not holding any supply
+# 2. Robot not holding Water
 # 3. GroveFire_Region_1 is active
 
 # SubTask 6: Extinguish GroveFire using Water.
@@ -15,7 +15,7 @@
 
 GoToObject(robot1, ReservoirDelta)
    Preconditions:
-     (not (at robot1 ReservoirDelta))
+     (not (inaction robot1))
    Effects:
      (at robot1 ReservoirDelta)
 
@@ -29,7 +29,7 @@ GetSupply(robot1, ReservoirDelta, Water)
 
 GoToObject(robot1, GroveFire_Region_1)
    Preconditions:
-     (not (at robot1 GroveFire_Region_1))
+     (not (inaction robot1))
    Effects:
      (at robot1 GroveFire_Region_1)
 
@@ -39,10 +39,10 @@ UseSupply(robot1, GroveFire_Region_1, Water)
      (has-supply robot1 Water)
      (is-region GroveFire_Region_1)
      (fire-active GroveFire_Region_1)
-     (exists (GroveFire)
+     (exists (?f - object)
        (and
-         (region-of GroveFire_Region_1 GroveFire)
-         (supply-for-fire Water GroveFire)
+         (region-of GroveFire_Region_1 ?f)
+         (supply-for-fire Water ?f)
        )
      )
    Effects:

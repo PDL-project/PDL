@@ -1,6 +1,6 @@
 ```pddl
 (define (problem extinguish-ridgefire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot

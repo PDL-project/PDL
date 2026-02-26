@@ -17,5 +17,5 @@ sar_robot = {
     "mass": 100,
 }
 
-# Keep length >= max agents (6 for SAR)
-robots = [sar_robot for _ in range(6)]
+# Keep length >= max agents (10 for SAR)
+robots = [sar_robot for _ in range(10)]

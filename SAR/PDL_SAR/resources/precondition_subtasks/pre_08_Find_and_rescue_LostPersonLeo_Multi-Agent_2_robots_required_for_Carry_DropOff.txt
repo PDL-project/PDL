@@ -1,0 +1,84 @@
+=== EXAMPLE OUTPUT FORMAT START ===
+# Task Description: Find and rescue LostPersonLeo. [Multi-Agent: 2 robots required for Carry+DropOff]
+
+# GENERAL TASK DECOMPOSITION 
+# Decompose and parallel subtasks where ever possible
+# Independent subtasks:
+
+# Initial condition analyze due to previous subtask:
+# 1. Robot not explored
+# 2. LostPersonLeo location unknown
+# 3. Robot not carrying anyone
+
+# SubTask 8: Find and rescue LostPersonLeo. [Multi-Agent: 2 robots required for Carry+DropOff]
+    Skills Required: Explore, GoToObject, Carry, DropOff
+    Related Objects: LostPersonLeo(type=Person), DepositFacility(type=Deposit)
+    Note: Moving a person requires 2 agents collaborating simultaneously.
+
+Explore(robot1)
+   Preconditions:
+     (not (person-found LostPersonLeo))
+   Effects:
+     (person-found LostPersonLeo)
+
+GoToObject(robot1, LostPersonLeo)
+   Preconditions:
+     (person-found LostPersonLeo)
+   Effects:
+     (at robot1 LostPersonLeo)
+
+GoToObject(robot2, LostPersonLeo)
+   Preconditions:
+     (person-found LostPersonLeo)
+   Effects:
+     (at robot2 LostPersonLeo)
+
+Carry(robot1, LostPersonLeo)
+   Preconditions:
+     (at robot1 LostPersonLeo)
+     (person-found LostPersonLeo)
+     (not (carrying robot1 LostPersonLeo))
+   Effects:
+     (carrying robot1 LostPersonLeo)
+
+Carry(robot2, LostPersonLeo)
+   Preconditions:
+     (at robot2 LostPersonLeo)
+     (person-found LostPersonLeo)
+     (not (carrying robot2 LostPersonLeo))
+   Effects:
+     (carrying robot2 LostPersonLeo)
+
+GoToObject(robot1, DepositFacility)
+   Preconditions:
+     (carrying robot1 LostPersonLeo)
+   Effects:
+     (at robot1 DepositFacility)
+
+GoToObject(robot2, DepositFacility)
+   Preconditions:
+     (carrying robot2 LostPersonLeo)
+   Effects:
+     (at robot2 DepositFacility)
+
+DropOff(robot1, LostPersonLeo, DepositFacility)
+   Preconditions:
+     (at robot1 DepositFacility)
+     (carrying robot1 LostPersonLeo)
+   Effects:
+     (not (carrying robot1 LostPersonLeo))
+     (person-rescued LostPersonLeo)
+
+DropOff(robot2, LostPersonLeo, DepositFacility)
+   Preconditions:
+     (at robot2 DepositFacility)
+     (carrying robot2 LostPersonLeo)
+   Effects:
+     (not (carrying robot2 LostPersonLeo))
+     (person-rescued LostPersonLeo)
+
+Goal condition:
+(person-rescued LostPersonLeo)
+
+# Task Find and rescue LostPersonLeo is done.
+=== EXAMPLE OUTPUT FORMAT END ===

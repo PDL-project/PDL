@@ -6,7 +6,7 @@
 
 # Initial condition analyze due to previous subtask:
 # 1. Robot not at any reservoir
-# 2. Robot not holding any supply
+# 2. Robot not holding Water
 # 3. PlainFire_Region_1 is active
 
 # SubTask 5: Extinguish PlainFire using Water.
@@ -15,7 +15,7 @@
 
 GoToObject(robot1, ReservoirDelta)
    Preconditions:
-     (not (inaction robot1))
+     (not (at robot1 ReservoirDelta))
    Effects:
      (at robot1 ReservoirDelta)
 
@@ -29,7 +29,7 @@ GetSupply(robot1, ReservoirDelta, Water)
 
 GoToObject(robot1, PlainFire_Region_1)
    Preconditions:
-     (not (inaction robot1))
+     (not (at robot1 PlainFire_Region_1))
    Effects:
      (at robot1 PlainFire_Region_1)
 

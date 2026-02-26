@@ -1,6 +1,6 @@
 ```lisp
 (define (problem extinguish-harborfire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -8,6 +8,7 @@
     HarborFire_Region_1 - object
     Water - object
     HarborFire - object
+    kitchen - object
   )
 
   (:init

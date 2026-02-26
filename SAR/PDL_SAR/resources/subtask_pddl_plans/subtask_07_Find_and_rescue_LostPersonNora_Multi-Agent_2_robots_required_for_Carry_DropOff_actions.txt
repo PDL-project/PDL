@@ -1,0 +1,5 @@
+explore robot1 (5)
+gotoobject robot1 lostpersonnora (1)
+carry robot1 lostpersonnora (1)
+gotoobject robot1 depositfacility (1)
+dropoff robot1 lostpersonnora depositfacility (1)

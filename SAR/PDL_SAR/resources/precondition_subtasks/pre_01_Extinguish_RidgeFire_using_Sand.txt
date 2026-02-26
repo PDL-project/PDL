@@ -6,7 +6,7 @@
 
 # Initial condition analyze due to previous subtask:
 # 1. Robot not at any reservoir
-# 2. Robot not holding any supply
+# 2. Robot not holding Sand
 # 3. RidgeFire_Region_1 is active
 
 # SubTask 1: Extinguish RidgeFire using Sand.
@@ -15,7 +15,7 @@
 
 GoToObject(robot1, ReservoirSierra)
    Preconditions:
-     (not (inaction robot1))
+     (not (at robot1 ReservoirSierra))
    Effects:
      (at robot1 ReservoirSierra)
 
@@ -29,7 +29,7 @@ GetSupply(robot1, ReservoirSierra, Sand)
 
 GoToObject(robot1, RidgeFire_Region_1)
    Preconditions:
-     (not (inaction robot1))
+     (not (at robot1 RidgeFire_Region_1))
    Effects:
      (at robot1 RidgeFire_Region_1)
 
@@ -51,3 +51,5 @@ UseSupply(robot1, RidgeFire_Region_1, Sand)
 
 Goal condition:
 (not (fire-active RidgeFire_Region_1))
+
+# Task Extinguish RidgeFire using Sand is done.

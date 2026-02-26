@@ -6,7 +6,7 @@
 
 # Initial condition analyze due to previous subtask:
 # 1. Robot not at any reservoir
-# 2. Robot not holding any supply
+# 2. Robot not holding Sand
 # 3. CanyonFire_Region_1 is active
 
 # SubTask 2: Extinguish CanyonFire using Sand.
@@ -15,7 +15,7 @@
 
 GoToObject(robot1, ReservoirSierra)
    Preconditions:
-     (not (inaction robot1))
+     ()
    Effects:
      (at robot1 ReservoirSierra)
 
@@ -29,7 +29,7 @@ GetSupply(robot1, ReservoirSierra, Sand)
 
 GoToObject(robot1, CanyonFire_Region_1)
    Preconditions:
-     (not (inaction robot1))
+     ()
    Effects:
      (at robot1 CanyonFire_Region_1)
 

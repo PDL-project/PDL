@@ -5,7 +5,7 @@ Runs the full PDL pipeline:
   1. Get SAR scene objects
   2. LLM task decomposition  (SAR-specific prompt)
   3. LLM precondition generation
-  4. LLM PDDL problem generation (using sar_domain.pddl)
+  4. LLM PDDL problem generation (using allactionrobot.pddl)
   5. FastDownward planning
   6. DAG dependency analysis
   7. Task-to-robot assignment  (round-robin when CP-SAT unavailable)
@@ -110,13 +110,75 @@ def _sar_assign_subtasks(
     subtasks: List[Dict],
     robot_ids: List[int],
     **_kwargs,
-) -> Dict[int, int]:
+) -> Dict[int, Any]:
     """
-    Simple round-robin assignment: subtask i -> robot_ids[i % n_robots].
-    Used as fallback when ortools CP-SAT is unavailable.
+    Round-robin assignment. Person rescue subtasks get a pair [lead, support]
     """
     n = len(robot_ids)
-    return {st["id"]: robot_ids[i % n] for i, st in enumerate(subtasks)}
+    assignment: Dict[int, Any] = {}
+    robot_counter = 0
+    for st in subtasks:
+        sid = st["id"]
+        title = st.get("title", "")
+        if "rescue" in title.lower():
+            lead    = robot_ids[robot_counter % n]
+            support = robot_ids[(robot_counter + 1) % n]
+            assignment[sid] = [lead, support]
+            robot_counter += 2
+        else:
+            assignment[sid] = robot_ids[robot_counter % n]
+            robot_counter += 1
+    return assignment
+
+
+def _augment_assignment_for_rescue(
+    assignment: Dict[int, Any],
+    parsed_subtasks: List[Dict],
+    robot_ids: List[int],
+    parallel_groups: Optional[Dict[str, List[int]]] = None,
+) -> Dict[int, Any]:
+    """
+    Post-process a CP-SAT assignment (int values only) to give rescue subtasks a second support robot.
+    """
+    n = len(robot_ids)
+    result: Dict[int, Any] = dict(assignment)
+    for st in parsed_subtasks:
+        sid   = st["id"]
+        title = st.get("title", "")
+        if "rescue" not in title.lower():
+            continue
+        lead = result.get(sid)
+        if not isinstance(lead, int):
+            continue
+        lead_idx = next((i for i, r in enumerate(robot_ids) if r == lead), 0)
+
+        # Find robots already busy in the same parallel group
+        busy_robots: set = set()
+        if parallel_groups:
+            for grp_sids in parallel_groups.values():
+                if sid in grp_sids:
+                    for other_sid in grp_sids:
+                        if other_sid == sid:
+                            continue
+                        other = result.get(other_sid)
+                        if isinstance(other, list):
+                            busy_robots.update(other)
+                        elif other is not None:
+                            busy_robots.add(other)
+                    break
+
+        # Pick nearest available support robot
+        support = None
+        for offset in range(1, n):
+            candidate = robot_ids[(lead_idx + offset) % n]
+            if candidate != lead and candidate not in busy_robots:
+                support = candidate
+                break
+        if support is None:
+            support = robot_ids[(lead_idx + 1) % n]  # fallback
+
+        result[sid] = [lead, support]
+    return result
 
 
 def _binding_pairs_from_subtask_dag(subtask_dag) -> List[Tuple[int, int]]:
@@ -194,7 +256,7 @@ from FeedbackLoopModule import (     # type: ignore[import]  # noqa: E402
 )
 
 # SAR-specific executor
-from sar_executor import SARExecutor, SubTaskExecutionResult  # noqa: E402
+from sar_executor import SARExecutor, SubTaskExecutionResult, _fires_still_active  # noqa: E402
 
 
 # -----------------------------------------------------------------------
@@ -307,7 +369,7 @@ def get_sar_objects(scene: int, num_agents: int = 3) -> Tuple[str, List[str]]:
 class SARTaskManager(TaskManager):
     """
     TaskManager subclass for SAR:
-    - SAR PDDL domain  (sar_domain.pddl)
+    - SAR PDDL domain  (allactionrobot.pddl)
     - SAR decompose prompt  (sar_decompose.py)
     - SAR robot skills  (sar_robots.py)
     - SARExecutor instead of MultiRobotExecutor
@@ -349,6 +411,10 @@ class SARTaskManager(TaskManager):
             "If you reference an object not in ENVIRONMENT OBJECTS, your answer is INVALID.\n\n"
             f"\nAVAILABLE ROBOT SKILLS = {robots}\n\n"
             "You MUST use only actions whose names are included in AVAILABLE ROBOT SKILLS.\n\n"
+            "IMPORTANT CONSTRAINT: To move a group of humans, at least 2 agents are required. "
+            "Thus, explicit multi-agent collaboration is required for any person rescue subtask. "
+            "Every subtask that involves rescuing (Carry + DropOff) a person MUST be annotated "
+            "with [Multi-Agent: 2 robots required for Carry+DropOff].\n\n"
             "The following are examples of the expected output format.\n\n"
         )
         prompt += decompose_prompt
@@ -518,8 +584,8 @@ class SARTaskManager(TaskManager):
         self.validated_plan         = []
         self.subtask_pddl_plans     = []
 
-        # Load SAR PDDL domain (sar_domain.pddl lives in resources/)
-        domain_path = os.path.join(self.resources_path, "sar_domain.pddl")
+        # Load SAR PDDL domain (allactionrobot.pddl lives in resources/)
+        domain_path = os.path.join(self.resources_path, "allactionrobot.pddl")
         domain_content = self.file_processor.read_file(domain_path)
 
         for task_idx, (task, task_robot_ids) in enumerate(zip(test_tasks, robot_ids)):
@@ -607,6 +673,11 @@ class SARTaskManager(TaskManager):
                 binding_pairs          = binding_pairs,
                 parallel_groups        = pg_for_lp,
             )
+            
+            assignment = _augment_assignment_for_rescue(
+                assignment, parsed_subtasks, task_robot_ids,
+                parallel_groups=pg_for_lp,
+            )
 
             self.task_assignment = assignment
 
@@ -618,8 +689,14 @@ class SARTaskManager(TaskManager):
                     (st["title"] for st in parsed_subtasks if st["id"] == sid),
                     f"Subtask {sid}",
                 )
-                agent_name = sar_env.agent_names[(rid - 1) % sar_env.num_agents]
-                print(f"  Subtask {sid} ({title}) -> Robot {rid} ({agent_name})")
+                if isinstance(rid, list):
+                    names = "+".join(
+                        sar_env.agent_names[(r - 1) % sar_env.num_agents] for r in rid
+                    )
+                    print(f"  Subtask {sid} ({title}) -> Robots {rid} ({names}) [multi-agent]")
+                else:
+                    agent_name = sar_env.agent_names[(rid - 1) % sar_env.num_agents]
+                    print(f"  Subtask {sid} ({title}) -> Robot {rid} ({agent_name})")
             print("=" * 50)
 
             # Save assignment JSON (read by SARExecutor)
@@ -709,7 +786,13 @@ class SARTaskManager(TaskManager):
                     coverage       = checker.get_coverage()
                     transport_rate = checker.get_transport_rate()
                     finished       = checker.check_success()
-                    balance        = executor._compute_balance_metric()
+                    # Final state check: verify ALL fires (including spread regions) are out
+                    # still_active = _fires_still_active(sar_env)
+                    # if still_active:
+                    #     finished = False
+                    #     for fname in still_active:
+                    #         print(f"  [Final State] Fire '{fname}' still active — Fail")
+                    balance        = executor._compute_balance_metric(finished=checker.check_success())
                     exec_rate      = executor._compute_exec_rate()
                     print(
                         f"\n  Coverage:{coverage:.3f}, Transport Rate:{transport_rate:.3f}, "

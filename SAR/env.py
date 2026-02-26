@@ -80,7 +80,7 @@ class SAREnv(SARBaseEnv):
         }
     ------------------------------
     """
-    AGENT_NAMES=['Alice', 'Bob', 'Charlie', 'David', 'Emma', 'Finn']
+    AGENT_NAMES=['Alice', 'Bob', 'Charlie', 'David', 'Emma', 'Finn', 'Grace', 'Henry', 'Iris', 'Jack']
     AVAILABLE_ACTIONS=Controller.ALL_ACTIONS+['Explore']
     CARDINAL_DIRECTIONS=Controller.MOVABLE_CARDINAL_DIRECTIONS
 

@@ -1,4 +1,4 @@
-(define (domain sar_domain)
+(define (domain allactionrobot)
   ;; SAR(Search And Rescue) domain for PDL pipeline.
   ;; Actions:
   ;;   GoToObject   -> NavigateTo(name)

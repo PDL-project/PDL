@@ -1,6 +1,6 @@
 ```lisp
 (define (problem extinguish-grovefire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -8,6 +8,7 @@
     GroveFire_Region_1 - object
     Water - object
     GroveFire - object
+    kitchen - object
   )
 
   (:init

@@ -11,13 +11,13 @@
         "Sand"
       ],
       "preconds": [
-        "Robot is not at any reservoir",
-        "Robot is not holding any supply",
-        "RidgeFire_Region_1 is active"
+        "Robot is not at any reservoir.",
+        "Robot is not holding Sand.",
+        "RidgeFire_Region_1 is active."
       ],
       "effects": [
-        "Robot has extinguished the fire in RidgeFire_Region_1",
-        "Robot is not holding Sand"
+        "Robot has extinguished the fire in RidgeFire_Region_1.",
+        "Robot is no longer holding Sand."
       ]
     },
     {
@@ -30,15 +30,13 @@
         "Sand"
       ],
       "preconds": [
-        "Robot is not inactive.",
-        "Robot is at ReservoirSierra.",
-        "ReservoirSierra has Sand.",
-        "CanyonFire_Region_1 is active."
+        "Robot is at the kitchen.",
+        "CanyonFire_Region_1 is active.",
+        "Sand is available at ReservoirSierra."
       ],
       "effects": [
-        "Robot is at CanyonFire_Region_1.",
-        "Robot no longer has Sand.",
-        "CanyonFire_Region_1 is no longer active."
+        "Robot extinguishes the fire in CanyonFire_Region_1.",
+        "Robot no longer has Sand."
       ]
     },
     {
@@ -51,14 +49,14 @@
         "Sand"
       ],
       "preconds": [
-        "Robot is not at any reservoir.",
-        "Robot is not holding any supply.",
-        "MoorFire_Region_1 is active."
+        "Robot is at the kitchen.",
+        "MoorFire_Region_1 is active.",
+        "Sand is available at ReservoirSierra."
       ],
       "effects": [
-        "Robot is at MoorFire_Region_1.",
-        "MoorFire_Region_1 is no longer active.",
-        "Robot is not holding Sand."
+        "Robot is no longer at the kitchen.",
+        "Robot has used Sand to extinguish the fire.",
+        "MoorFire_Region_1 is no longer active."
       ]
     },
     {
@@ -68,17 +66,16 @@
         "robot1",
         "ReservoirDelta",
         "HarborFire_Region_1",
-        "Water",
-        "HarborFire"
+        "Water"
       ],
       "preconds": [
-        "Robot1 is not at any reservoir.",
-        "Robot1 is not holding any supply.",
+        "Robot is at the kitchen.",
+        "ReservoirDelta contains Water.",
         "HarborFire_Region_1 is active."
       ],
       "effects": [
-        "Robot1 has extinguished the fire in HarborFire_Region_1.",
-        "Robot1 no longer has the water supply."
+        "Robot extinguishes the fire at HarborFire_Region_1.",
+        "Robot no longer has Water."
       ]
     },
     {
@@ -88,17 +85,16 @@
         "robot1",
         "ReservoirDelta",
         "PlainFire_Region_1",
-        "Water",
-        "PlainFire"
+        "Water"
       ],
       "preconds": [
-        "Robot is not at any reservoir",
-        "Robot is not holding any supply",
-        "PlainFire_Region_1 is active"
+        "Robot is not at any reservoir.",
+        "Robot is not holding Water.",
+        "PlainFire_Region_1 is active."
       ],
       "effects": [
-        "Robot has extinguished the fire in PlainFire_Region_1",
-        "Robot is no longer holding Water"
+        "Robot extinguishes the fire in PlainFire_Region_1.",
+        "Robot no longer holds Water."
       ]
     },
     {
@@ -108,51 +104,188 @@
         "robot1",
         "ReservoirDelta",
         "GroveFire_Region_1",
-        "Water",
-        "GroveFire"
+        "Water"
       ],
       "preconds": [
-        "Robot is not at any reservoir",
-        "Robot is not holding any supply",
-        "GroveFire_Region_1 is active"
+        "Robot is not at any reservoir.",
+        "Robot is not holding Water.",
+        "GroveFire_Region_1 is active."
       ],
       "effects": [
-        "Robot extinguishes the fire in GroveFire_Region_1",
-        "Robot is not holding any supply"
+        "Robot extinguishes the fire in GroveFire_Region_1.",
+        "Robot no longer holds Water."
       ]
     },
     {
       "id": 7,
-      "name": "subtask_07_Find_and_rescue_LostPersonNora_LostPersonLeo_LostPersonMaya_and_LostPersonEthan",
+      "name": "subtask_07_Find_and_rescue_LostPersonNora_Multi-Agent_2_robots_required_for_Carry_DropOff",
       "objects": [
         "robot1",
+        "robot2",
         "LostPersonNora",
+        "DepositFacility"
+      ],
+      "preconds": [
+        "LostPersonNora is not found",
+        "robots are not carrying anyone"
+      ],
+      "effects": [
+        "LostPersonNora is found and rescued",
+        "robots are not carrying LostPersonNora"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "subtask_08_Find_and_rescue_LostPersonLeo_Multi-Agent_2_robots_required_for_Carry_DropOff",
+      "objects": [
+        "robot1",
+        "robot2",
         "LostPersonLeo",
+        "DepositFacility"
+      ],
+      "preconds": [
+        "LostPersonLeo is not found",
+        "robot1 is at the kitchen",
+        "robot2 is available"
+      ],
+      "effects": [
+        "LostPersonLeo is found",
+        "LostPersonLeo is rescued and at the DepositFacility"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "subtask_09_Find_and_rescue_LostPersonMaya_Multi-Agent_2_robots_required_for_Carry_DropOff",
+      "objects": [
+        "robot1",
+        "robot2",
         "LostPersonMaya",
+        "DepositFacility"
+      ],
+      "preconds": [
+        "LostPersonMaya is not found",
+        "LostPersonMaya's location is unknown",
+        "robot1 and robot2 are not carrying anyone"
+      ],
+      "effects": [
+        "LostPersonMaya is found",
+        "robot1 and robot2 are at LostPersonMaya's location",
+        "robot1 and robot2 are carrying LostPersonMaya",
+        "robot1 and robot2 are at the DepositFacility",
+        "LostPersonMaya is rescued"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "subtask_10_Find_and_rescue_LostPersonEthan_Multi-Agent_2_robots_required_for_Carry_DropOff",
+      "objects": [
+        "robot1",
+        "robot2",
         "LostPersonEthan",
         "DepositFacility"
       ],
       "preconds": [
-        "Robot is at the starting location",
-        "Positions of all lost persons are unknown",
-        "Robot is not carrying anyone"
+        "LostPersonEthan is not found",
+        "robot1 and robot2 are not carrying anyone"
       ],
       "effects": [
-        "All lost persons are found",
-        "All lost persons are rescued and delivered to the Deposit Facility"
+        "LostPersonEthan is found and rescued",
+        "LostPersonEthan is at the DepositFacility"
       ]
     }
   ],
-  "edges": [],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Same Sand object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Same Sand object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Same Sand object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Same Water object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 4,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Same Water object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 5,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Same Water object - cannot be manipulated in parallel"
+    },
+    {
+      "from_id": 7,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Same robots required for multi-agent task"
+    },
+    {
+      "from_id": 7,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same robots required for multi-agent task"
+    },
+    {
+      "from_id": 7,
+      "to_id": 10,
+      "dependency_type": "resource",
+      "reason": "Same robots required for multi-agent task"
+    },
+    {
+      "from_id": 8,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Same robots required for multi-agent task"
+    },
+    {
+      "from_id": 8,
+      "to_id": 10,
+      "dependency_type": "resource",
+      "reason": "Same robots required for multi-agent task"
+    },
+    {
+      "from_id": 9,
+      "to_id": 10,
+      "dependency_type": "resource",
+      "reason": "Same robots required for multi-agent task"
+    }
+  ],
   "parallel_groups": {
     "0": [
       1,
-      2,
-      3,
       4,
-      5,
-      6,
       7
+    ],
+    "1": [
+      2,
+      5,
+      8
+    ],
+    "2": [
+      3,
+      6,
+      9
+    ],
+    "3": [
+      10
     ]
   }
 }

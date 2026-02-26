@@ -1,5 +1,6 @@
+```lisp
 (define (problem extinguish-canyonfire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -11,16 +12,17 @@
 
   (:init
     (at robot1 kitchen)
-    (is-reservoir ReservoirSierra)
-    (is-region CanyonFire_Region_1)
-    (is-supply Sand)
     (fire-active CanyonFire_Region_1)
+    (is-region CanyonFire_Region_1)
+    (is-reservoir ReservoirSierra)
+    (is-supply Sand)
+    (has-resource ReservoirSierra Sand)
     (region-of CanyonFire_Region_1 CanyonFire)
     (supply-for-fire Sand CanyonFire)
-    (has-resource ReservoirSierra Sand)
   )
 
   (:goal (and
     (not (fire-active CanyonFire_Region_1))
   ))
 )
+```

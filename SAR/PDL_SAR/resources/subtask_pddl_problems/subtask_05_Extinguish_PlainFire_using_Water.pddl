@@ -1,6 +1,6 @@
-```lisp
+```pddl
 (define (problem extinguish-plainfire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -8,6 +8,7 @@
     PlainFire_Region_1 - object
     Water - object
     PlainFire - object
+    kitchen - object
   )
 
   (:init

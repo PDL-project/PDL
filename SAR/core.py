@@ -1040,7 +1040,7 @@ PersonStatus = Enum('PersonStatus', ['GRABBED', 'GROUNDED'])
 @collidable(is_collidable=True)
 class Person:
     # minimium amount of agents required to pick up
-    MIN_REQUIRED_AGENTS=1
+    MIN_REQUIRED_AGENTS=2
 
     def __init__(self, extra_load=0):
         # additional load from person additionally from MIN_REQUIRED_AGENTS
@@ -1810,7 +1810,7 @@ class Controller:
         if scene is None: scene=1
         if scene==1:
             # area_900_allones_default initialization
-            assert 1<=num_agents<=6, f"For the 'area_900_allones_default' initialization min: 1 and max: 6 are supported not {num_agents}"
+            assert 1<=num_agents<=10, f"For the 'area_900_allones_default' initialization min: 1 and max: 10 are supported not {num_agents}"
             params={
                     'grid_size' : (30,30,1),
 
@@ -1834,7 +1834,11 @@ class Controller:
                         Arg(position=(16,18)),
                         Arg(position=(10,17)),
                         Arg(position=(11,18)),
-                        Arg(position=(25,25))
+                        Arg(position=(25,25)),
+                        Arg(position=(3,3)),
+                        Arg(position=(3,27)),
+                        Arg(position=(27,3)),
+                        Arg(position=(27,27))
                         ][:num_agents],
                     }
         else:

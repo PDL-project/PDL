@@ -1,5 +1,5 @@
 (define (problem extinguish-grovefire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -11,7 +11,7 @@
 
   (:init
     (= (total-cost) 0)
-    (at robot1 ReservoirDelta)
+    (at robot1 kitchen)
     (is-reservoir ReservoirDelta)
     (is-region GroveFire_Region_1)
     (is-supply Water)

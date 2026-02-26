@@ -1,5 +1,5 @@
 (define (problem extinguish-ridgefire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -15,6 +15,7 @@
     (is-reservoir ReservoirSierra)
     (is-region RidgeFire_Region_1)
     (is-supply Sand)
+    (is-fire RidgeFire)
     (fire-active RidgeFire_Region_1)
     (region-of RidgeFire_Region_1 RidgeFire)
     (supply-for-fire Sand RidgeFire)

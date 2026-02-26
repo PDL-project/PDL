@@ -1,6 +1,6 @@
-```pddl
+```lisp
 (define (problem extinguish-moorfire)
-  (:domain sar_domain)
+  (:domain allactionrobot)
 
   (:objects
     robot1 - robot
@@ -8,6 +8,7 @@
     MoorFire_Region_1 - object
     Sand - object
     MoorFire - object
+    kitchen - object
   )
 
   (:init

@@ -6,7 +6,7 @@
 
 # Initial condition analyze due to previous subtask:
 # 1. Robot not at any reservoir
-# 2. Robot not holding any supply
+# 2. Robot not holding Sand
 # 3. MoorFire_Region_1 is active
 
 # SubTask 3: Extinguish MoorFire using Sand.
@@ -51,3 +51,5 @@ UseSupply(robot1, MoorFire_Region_1, Sand)
 
 Goal condition:
 (not (fire-active MoorFire_Region_1))
+
+# Task Extinguish MoorFire using Sand is done.
