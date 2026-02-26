@@ -109,25 +109,63 @@ def _install_mocks() -> None:
 def _sar_assign_subtasks(
     subtasks: List[Dict],
     robot_ids: List[int],
+    plan_actions_by_subtask: Optional[Dict[int, List[str]]] = None,
+    parallel_groups: Optional[Dict[str, List[int]]] = None,
     **_kwargs,
 ) -> Dict[int, Any]:
     """
-    Round-robin assignment. Person rescue subtasks get a pair [lead, support]
+    Balance-aware, conflict-free assignment.
+
+    - Prefers agents with fewer planned actions (balance).
+    - Ensures no two subtasks in the same parallel group share an agent (conflict-free).
+    - Rescue subtasks get a [lead, support] pair.
     """
-    n = len(robot_ids)
     assignment: Dict[int, Any] = {}
-    robot_counter = 0
+    robot_action_count: Dict[int, int] = {r: 0 for r in robot_ids}
+
+    # Build sid -> group_key map for fast parallel-group lookup
+    sid_to_group: Dict[int, str] = {}
+    if parallel_groups:
+        for gkey, sids in parallel_groups.items():
+            for s in sids:
+                sid_to_group[int(s)] = gkey
+
     for st in subtasks:
-        sid = st["id"]
+        sid   = st["id"]
         title = st.get("title", "")
+        n_actions = len(plan_actions_by_subtask.get(sid, [])) if plan_actions_by_subtask else 1
+
+        # Collect robots already committed in the same parallel group
+        busy: set = set()
+        gkey = sid_to_group.get(sid)
+        if gkey and parallel_groups:
+            for other_sid in parallel_groups[gkey]:
+                if int(other_sid) == sid:
+                    continue
+                prev = assignment.get(int(other_sid))
+                if isinstance(prev, list):
+                    busy.update(prev)
+                elif prev is not None:
+                    busy.add(prev)
+
+        available = [r for r in robot_ids if r not in busy]
+        if not available:
+            available = robot_ids  # fallback: ignore group constraint
+
         if "rescue" in title.lower():
-            lead    = robot_ids[robot_counter % n]
-            support = robot_ids[(robot_counter + 1) % n]
+            if len(available) < 2:
+                available = robot_ids  # fallback for 2-robot requirement
+            sorted_avail = sorted(available, key=lambda r: robot_action_count[r])
+            lead    = sorted_avail[0]
+            support = sorted_avail[1]
             assignment[sid] = [lead, support]
-            robot_counter += 2
+            robot_action_count[lead]    += n_actions
+            robot_action_count[support] += n_actions
         else:
-            assignment[sid] = robot_ids[robot_counter % n]
-            robot_counter += 1
+            lead = min(available, key=lambda r: robot_action_count[r])
+            assignment[sid] = lead
+            robot_action_count[lead] += n_actions
+
     return assignment
 
 
@@ -136,12 +174,32 @@ def _augment_assignment_for_rescue(
     parsed_subtasks: List[Dict],
     robot_ids: List[int],
     parallel_groups: Optional[Dict[str, List[int]]] = None,
+    plan_actions_by_subtask: Optional[Dict[int, List[str]]] = None,
 ) -> Dict[int, Any]:
     """
-    Post-process a CP-SAT assignment (int values only) to give rescue subtasks a second support robot.
+    Post-process a CP-SAT assignment (int values only) to give rescue subtasks
+    a second support robot, preferring the least-busy available agent.
+
+    Avoids picking a support robot already assigned to another subtask in the
+    same parallel group (which would cause an agent conflict at execution).
     """
     n = len(robot_ids)
     result: Dict[int, Any] = dict(assignment)
+
+    # Compute planned action count per robot from the current assignment
+    robot_action_count: Dict[int, int] = {r: 0 for r in robot_ids}
+    if plan_actions_by_subtask:
+        for st in parsed_subtasks:
+            sid_st = st["id"]
+            n_act = len(plan_actions_by_subtask.get(sid_st, []))
+            assigned = result.get(sid_st)
+            if isinstance(assigned, list):
+                for r in assigned:
+                    if r in robot_action_count:
+                        robot_action_count[r] += n_act
+            elif assigned is not None and assigned in robot_action_count:
+                robot_action_count[assigned] += n_act
+
     for st in parsed_subtasks:
         sid   = st["id"]
         title = st.get("title", "")
@@ -149,8 +207,9 @@ def _augment_assignment_for_rescue(
             continue
         lead = result.get(sid)
         if not isinstance(lead, int):
-            continue
-        lead_idx = next((i for i, r in enumerate(robot_ids) if r == lead), 0)
+            continue  # already a list or missing
+
+        n_actions = len(plan_actions_by_subtask.get(sid, [])) if plan_actions_by_subtask else 1
 
         # Find robots already busy in the same parallel group
         busy_robots: set = set()
@@ -167,18 +226,81 @@ def _augment_assignment_for_rescue(
                             busy_robots.add(other)
                     break
 
-        # Pick nearest available support robot
-        support = None
-        for offset in range(1, n):
-            candidate = robot_ids[(lead_idx + offset) % n]
-            if candidate != lead and candidate not in busy_robots:
-                support = candidate
-                break
-        if support is None:
+        # Pick least-busy available support robot (not lead, not busy in same group)
+        available = [r for r in robot_ids if r != lead and r not in busy_robots]
+        if available:
+            support = min(available, key=lambda r: robot_action_count[r])
+        else:
+            lead_idx = next((i for i, r in enumerate(robot_ids) if r == lead), 0)
             support = robot_ids[(lead_idx + 1) % n]  # fallback
 
         result[sid] = [lead, support]
+        if support in robot_action_count:
+            robot_action_count[support] += n_actions
+
     return result
+
+
+def _resolve_parallel_group_conflicts(
+    assignment: Dict[int, Any],
+    parallel_groups: Dict[str, List[int]],
+    num_agents: Optional[int] = None,
+) -> Dict[str, List[int]]:
+    """
+    Detect robot conflicts within each parallel group.
+
+    If the same robot is assigned to 2+ subtasks in the same group,
+    move the conflicting subtask(s) to a new sequential group appended
+    at the end (so they execute after all existing groups).
+
+    num_agents: when provided, robot IDs are normalized to agent indices via
+                (rid - 1) % num_agents before conflict checking.
+
+    Returns an updated parallel_groups dict (str keys, conflict-free).
+    """
+    if not parallel_groups:
+        return parallel_groups
+
+    def _agent_indices(val: Any) -> set:
+        rids = list(val) if isinstance(val, list) else ([val] if val is not None else [])
+        if num_agents is not None:
+            return {(r - 1) % num_agents for r in rids}
+        return set(rids)
+
+    int_keys = []
+    for k in parallel_groups:
+        try:
+            int_keys.append(int(k))
+        except (ValueError, TypeError):
+            pass
+    next_gid = (max(int_keys) + 1) if int_keys else 0
+
+    resolved: Dict[str, List[int]] = {}
+    overflow: List[int] = []
+
+    for gkey, sids in parallel_groups.items():
+        seen_agents: set = set()
+        clean: List[int] = []
+        for sid in sids:
+            val = assignment.get(int(sid))
+            agents = _agent_indices(val)
+            if agents & seen_agents:
+                overflow.append(int(sid))
+                print(
+                    f"  [ConflictResolve] Subtask {sid} moved to overflow"
+                    f" (agent conflict in group {gkey})"
+                )
+            else:
+                clean.append(int(sid))
+                seen_agents.update(agents)
+        resolved[str(gkey)] = clean
+
+    for sid in overflow:
+        resolved[str(next_gid)] = [sid]
+        next_gid += 1
+
+    # Remove groups that became empty
+    return {k: v for k, v in resolved.items() if v}
 
 
 def _binding_pairs_from_subtask_dag(subtask_dag) -> List[Tuple[int, int]]:
@@ -239,8 +361,12 @@ def _lp_assign_via_subprocess(
     except Exception as exc:
         print(f"[LP] Subprocess error: {exc}")
 
-    print("[LP] Falling back to round-robin assignment")
-    return _sar_assign_subtasks(subtasks, robot_ids)
+    print("[LP] Falling back to balance-aware assignment")
+    return _sar_assign_subtasks(
+        subtasks, robot_ids,
+        plan_actions_by_subtask=plan_actions_by_subtask,
+        parallel_groups=parallel_groups,
+    )
 
 
 _install_mocks()
@@ -421,6 +547,7 @@ class SARTaskManager(TaskManager):
         prompt += "\n\n# GENERAL TASK DECOMPOSITION\n"
         prompt += "Decompose and parallelize subtasks where ever possible.\n\n"
         prompt += f"# Task Description: {task}"
+        prompt += f"\n\n IMPORTANT: Gotoobject is needed before GetSupply\n\n"
 
         if "gpt" not in self.gpt_version:
             _, text = self.llm.query_model(
@@ -493,7 +620,12 @@ class SARTaskManager(TaskManager):
                     "13. UseSupply targets a fire REGION (not the fire object itself). "
                     "The region must satisfy (region-of ?reg ?fire) and (supply-for-fire ?s ?fire).\n"
                     "14. Only reference objects that already exist in the environment — "
-                    "do not invent new object names.\n\n"
+                    "do not invent new object names.\n"
+                    "15. CRITICAL — robot initial position: ALWAYS include 'base_camp' in "
+                    ":objects and set (at robot1 base_camp) in :init. NEVER set "
+                    "(at robot1 <reservoir>), (at robot1 <fire_region>), or "
+                    "(at robot1 <person>) in :init. The planner must insert GoToObject "
+                    "to navigate the robot — presetting the position skips that action.\n\n"
 
                     f"Precondition description:\n{precondition_content}\n\n"
                     f"Domain (authoritative):\n{domain_content}\n\n"
@@ -545,6 +677,110 @@ class SARTaskManager(TaskManager):
             super().run_planners()
         finally:
             self.base_path = saved_base_path
+
+    # ------------------------------------------------------------------
+    # PDDL problem generation (SAR-specific prompt overrides)
+    # ------------------------------------------------------------------
+
+    def _generate_subtask_pddl_problems(
+        self, parsed_subtasks, domain_content, robots, objects_ai
+    ):
+        """
+        Override parent to replace the AI2Thor-specific prompt additions
+        ("Robot starts in the kitchen!", openable/fridge rules) with SAR rules.
+
+        Key constraint: the robot's initial position must ALWAYS be base_camp,
+        never the supply source or fire region, so that FastDownward generates
+        GoToObject before GetSupply / UseSupply.
+        """
+        import re as _re
+        from typing import List as _List, Dict as _Any_
+
+        results = []
+        try:
+            skills_sorted = sorted(set([s.strip() for s in robots if s and s.strip()]))
+
+            example_path = os.path.join(
+                self.base_path, "data", "pythonic_plans",
+                "chaerin_pddl_train_task_pddl_problem.py"
+            )
+            example_prompt = self.file_processor.read_file(example_path)
+
+            for st in parsed_subtasks:
+                sub_id    = st.get("subtask_id")
+                title     = st.get("subtask_title", "").strip()
+                st_skills = st.get("skills", [])
+                st_objects = st.get("objects", [])
+
+                sub_domain = self.build_subdomain_for_skills(domain_content, st_skills)
+
+                prompt = (
+                    "You are a PDDL problem generation expert for SAR (Search-And-Rescue) robot tasks.\n"
+                    "Your job is to generate a valid PDDL *problem* file for the given subtask.\n\n"
+
+                    f"ENVIRONMENT OBJECTS (ground-truth — use ONLY these):\n{objects_ai}\n\n"
+
+                    f"OBJECTS SELECTED FOR THIS SUBTASK:\n{st_objects}\n\n"
+                    "Prioritize these objects; you may also use others from ENVIRONMENT OBJECTS if needed.\n\n"
+
+                    f"AVAILABLE ROBOT SKILLS (action names):\n{robots}\n\n"
+                    "Use ONLY actions from AVAILABLE ROBOT SKILLS.\n\n"
+
+                    f"SKILLS REQUIRED FOR THIS SUBTASK: {st_skills}\n"
+                    "Your PDDL problem must be solvable using ONLY these skills.\n\n"
+
+                    f"DOMAIN:\n{domain_content}\n\n"
+                    "Use this domain as the sole reference for predicates and action definitions.\n\n"
+
+                    "=== SAR PDDL RULES ===\n"
+                    "1. Always include 'base_camp' in :objects and set (at robot1 base_camp) in :init.\n"
+                    "   NEVER set (at robot1 <reservoir>), (at robot1 <fire_region>), or\n"
+                    "   (at robot1 <person>) in :init — doing so skips GoToObject in the plan.\n"
+                    "   The planner (FastDownward) MUST insert GoToObject to navigate the robot.\n"
+                    "2. Supply types (e.g., Sand, Water) need: (is-supply <s>), (has-resource <reservoir> <s>),\n"
+                    "   (supply-for-fire <s> <fire>) in :init.\n"
+                    "3. Fire regions need: (is-region <reg>), (fire-active <reg>), (region-of <reg> <fire>) in :init.\n"
+                    "4. Reservoirs need: (is-reservoir <res>) in :init.\n"
+                    "5. Lost persons need: (is-person <p>), (person-lost <p>) in :init.\n"
+                    "   Do NOT add (person-found <p>) in :init — Explore sets that.\n"
+                    "6. Deposit locations need: (is-deposit <d>) in :init.\n"
+                    "7. Output ONLY a single complete PDDL problem file — no markdown, no explanation.\n\n"
+
+                    "=== EXAMPLE FORMAT ===\n"
+                    f"{example_prompt}\n"
+                    "=== END EXAMPLES ===\n\n"
+
+                    "=== SUBTASK TO SOLVE ===\n"
+                    f"{st}\n\n"
+                    "Generate the PDDL problem file now:"
+                )
+
+                if "gpt" not in self.gpt_version:
+                    _, text = self.llm.query_model(
+                        prompt, self.gpt_version,
+                        max_tokens=2000, stop=["def"], frequency_penalty=0.0
+                    )
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+                    _, text = self.llm.query_model(
+                        messages, self.gpt_version,
+                        max_tokens=2000, frequency_penalty=0.0
+                    )
+
+                results.append({
+                    "subtask_id":    sub_id,
+                    "subtask_title": title,
+                    "skills":        st_skills,
+                    "objects":       st_objects,
+                    "problem_name":  f"subtask_{sub_id}_{_re.sub(r'[^a-zA-Z0-9_]+', '_', title)[:40]}",
+                    "problem_text":  text,
+                    "raw_llm_output": text,
+                })
+
+        except Exception as exc:
+            raise RuntimeError(f"SAR PDDL problem generation failed: {exc}") from exc
+
+        return results
 
     # ------------------------------------------------------------------
     # Main pipeline: process_tasks_sar
@@ -677,7 +913,26 @@ class SARTaskManager(TaskManager):
             assignment = _augment_assignment_for_rescue(
                 assignment, parsed_subtasks, task_robot_ids,
                 parallel_groups=pg_for_lp,
+                plan_actions_by_subtask=plan_actions_by_sid,
             )
+
+            # ---- Resolve any remaining robot conflicts in parallel groups ----
+            if pg_for_lp:
+                pg_resolved = _resolve_parallel_group_conflicts(assignment, pg_for_lp, num_agents=len(task_robot_ids))
+                if pg_resolved != pg_for_lp:
+                    print("[PDL-SAR] Parallel-group conflicts resolved — updating DAG JSON")
+                    dag_dir_pre = os.path.join(self.resources_path, "dag_outputs")
+                    dag_json_path = os.path.join(dag_dir_pre, "task_SUBTASK_DAG.json")
+                    if os.path.exists(dag_json_path):
+                        with open(dag_json_path) as _f:
+                            _dag_data = json.load(_f)
+                        _dag_data["parallel_groups"] = {
+                            k: [int(x) for x in v] for k, v in pg_resolved.items()
+                        }
+                        with open(dag_json_path, "w") as _f:
+                            json.dump(_dag_data, _f, indent=2, ensure_ascii=False)
+                        print(f"  Updated: {dag_json_path}")
+                    pg_for_lp = pg_resolved
 
             self.task_assignment = assignment
 
@@ -719,7 +974,8 @@ class SARTaskManager(TaskManager):
             # ---- Step 7: SARExecutor ----
             print("\n[Step 7] Executing plans in SAR environment...")
             executor = SARExecutor(self._sar_pdl_root)
-            executor.run(task_idx=task_idx, task_name="task", task_description=task)
+            executor.run(task_idx=task_idx, task_name="task", task_description=task,
+                         num_agents=len(task_robot_ids))
             executor.set_object_names(all_object_names)
 
             if run_with_feedback:

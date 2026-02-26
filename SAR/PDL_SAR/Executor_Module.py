@@ -50,8 +50,15 @@ def main():
 
     sar_pdl_root = str(_PDLSAR_ROOT)
     executor = SARExecutor(sar_pdl_root)
-    executor.run(task_idx=args.task_idx, task_name="task", task_description=sar_env.task)
+    executor.run(task_idx=args.task_idx, task_name="task", task_description=sar_env.task,
+                 num_agents=sar_env.num_agents)
     executor.set_object_names(all_object_names)
+
+    # Show assignment and parallel groups (conflict resolution already applied inside run())
+    print("\n[Step 7] Task Assignment:")
+    for sid, rid in sorted(executor.assignment.items()):
+        print(f"  Subtask {sid} -> Robot {rid}")
+    print(f"\n[Step 7] Parallel Groups: {executor.parallel_groups}")
 
     print("\n[Step 7] Executing plans in SAR environment...")
     results = executor.execute_in_sar(sar_env)

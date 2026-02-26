@@ -8,7 +8,7 @@
 #                       SubTask 3 can also run in parallel with 1 and 2.
 
 # Initial condition analyze due to previous subtask:
-# 1. Robot not at any reservoir
+# 1. Robot not at any reservoir and not went to yet
 # 2. Robot not holding any supply
 # 3. CaldorFire regions are active (on fire)
 
@@ -17,7 +17,7 @@
     Related Objects: ReservoirUtah(type=Sand), CaldorFire_Region_1(fire=CaldorFire), CaldorFire_Region_2(fire=CaldorFire)
 
 # Initial condition analyze due to previous subtask:
-# 1. Robot not at any reservoir
+# 1. Robot not at any reservoir and not went to yet
 # 2. Robot not holding any supply
 # 3. GreatFire regions are active (on fire)
 
@@ -46,7 +46,7 @@
 # Independent subtasks: SubTask 1 and SubTask 2 can run in parallel.
 
 # Initial condition analyze due to previous subtask:
-# 1. Robot not at any reservoir
+# 1. Robot not at any reservoir and not went to yet
 # 2. Robot not holding Sand
 # 3. BlueFire_Region_1 is active
 

@@ -170,6 +170,8 @@ class SARExecutor:
         self.success_exec: int = 0                 # successful non-NoOp actions
 
         self._object_name_map: Dict[str, str] = {}   # lowercase -> original
+        self.controller = None
+        self.num_agents: Optional[int] = None        # set by run() or execute_in_sar()
 
     # ------------------------------------------------------------------
     # Preparation phase (called by planning_sar.py after PDDL planning)
@@ -181,14 +183,18 @@ class SARExecutor:
         task_name: str = "task",
         task_description: str = "",
         output_path: Optional[str] = None,
+        num_agents: Optional[int] = None,
     ) -> str:
         """
         Load PDDL plan actions + assignment + parallel_groups from disk.
         Returns a summary string (for compatibility with MultiRobotExecutor.run interface).
+        num_agents: number of physical agents in the env (needed for correct conflict detection).
         """
         self.task_idx = task_idx
         self.task_name = task_name
         self.task_description = task_description
+        if num_agents is not None:
+            self.num_agents = num_agents
 
         dag_dir = os.path.join(self.resources_path, "dag_outputs")
 
@@ -216,6 +222,19 @@ class SARExecutor:
             print(f"[SARExecutor] Warning: DAG JSON not found, using flat group: {dag_json}")
             all_ids = list(self.assignment.keys())
             self.parallel_groups = {0: all_ids}
+
+        # --- Resolve any robot conflicts within parallel groups ---
+        resolved_pg = _resolve_parallel_group_conflicts(self.assignment, self.parallel_groups, self.num_agents)
+        if resolved_pg != self.parallel_groups:
+            print("[SARExecutor] Parallel-group conflicts resolved — updating in-memory groups")
+            self.parallel_groups = resolved_pg
+            if os.path.exists(dag_json):
+                with open(dag_json) as f:
+                    dag_data_upd = json.load(f)
+                dag_data_upd["parallel_groups"] = {str(k): list(v) for k, v in resolved_pg.items()}
+                with open(dag_json, "w") as f:
+                    json.dump(dag_data_upd, f, indent=2, ensure_ascii=False)
+                print(f"  Updated DAG JSON: {dag_json}")
 
         # Load raw PDDL plan actions
         self._pddl_actions_raw = self._load_pddl_actions()
@@ -333,6 +352,14 @@ class SARExecutor:
 
         num_agents = sar_env.num_agents
         agent_names = sar_env.agent_names   # ['Alice', 'Bob', ...]
+
+        # Update num_agents from env and re-apply conflict resolution if not set earlier
+        if self.num_agents != num_agents:
+            self.num_agents = num_agents
+            resolved_pg = _resolve_parallel_group_conflicts(self.assignment, self.parallel_groups, num_agents)
+            if resolved_pg != self.parallel_groups:
+                print("[SARExecutor] Conflict re-resolved with actual num_agents — updating groups")
+                self.parallel_groups = resolved_pg
 
         # Reset metrics
         self.agent_success_counts = [0] * num_agents
@@ -660,7 +687,10 @@ class SARExecutor:
         if os.path.exists(assignment_file):
             with open(assignment_file) as f:
                 data = json.load(f)
-            self.assignment = {int(k): int(v) for k, v in data.get("assignment", {}).items()}
+            self.assignment = {
+                int(k): ([int(x) for x in v] if isinstance(v, list) else int(v))
+                for k, v in data.get("assignment", {}).items()
+            }
 
         # Reload parallel_groups
         dag_json = os.path.join(dag_dir, f"{self.task_name}_SUBTASK_DAG.json")
@@ -670,6 +700,15 @@ class SARExecutor:
             raw_pg = dag_data.get("parallel_groups", {})
             self.parallel_groups = {int(k): list(map(int, v)) for k, v in raw_pg.items()}
 
+            # Resolve any robot conflicts after replan
+            resolved_pg = _resolve_parallel_group_conflicts(self.assignment, self.parallel_groups, self.num_agents)
+            if resolved_pg != self.parallel_groups:
+                print("[SARExecutor] Parallel-group conflicts resolved after replan")
+                self.parallel_groups = resolved_pg
+                dag_data["parallel_groups"] = {str(k): list(v) for k, v in resolved_pg.items()}
+                with open(dag_json, "w") as f:
+                    json.dump(dag_data, f, indent=2, ensure_ascii=False)
+
         # Reload PDDL actions
         self._pddl_actions_raw = self._load_pddl_actions()
         return True
@@ -678,6 +717,61 @@ class SARExecutor:
 # -----------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------
+
+def _resolve_parallel_group_conflicts(
+    assignment: Dict[int, Any],
+    parallel_groups: Dict[int, List[int]],
+    num_agents: Optional[int] = None,
+) -> Dict[int, List[int]]:
+    """
+    Detect robot conflicts within each parallel group.
+
+    If the same robot is assigned to 2+ subtasks in the same group,
+    move the conflicting subtask(s) to a new sequential group appended
+    at the end (so they execute after all existing groups).
+
+    num_agents: when provided, robot IDs are normalized to agent indices via
+                (rid - 1) % num_agents before conflict checking, so that e.g.
+                robot 4 and robot 1 both resolve to agent 0 with 3 agents.
+
+    Returns an updated parallel_groups dict (int keys, conflict-free).
+    """
+    if not parallel_groups:
+        return parallel_groups
+
+    def _agent_indices(val: Any) -> set:
+        rids = list(val) if isinstance(val, list) else ([val] if val is not None else [])
+        if num_agents is not None:
+            return {(r - 1) % num_agents for r in rids}
+        return set(rids)
+
+    next_gid = (max(parallel_groups.keys()) + 1) if parallel_groups else 0
+    resolved: Dict[int, List[int]] = {}
+    overflow: List[int] = []
+
+    for gkey, sids in parallel_groups.items():
+        seen_agents: set = set()
+        clean: List[int] = []
+        for sid in sids:
+            val = assignment.get(int(sid))
+            agents = _agent_indices(val)
+            if agents & seen_agents:
+                overflow.append(int(sid))
+                print(
+                    f"  [ConflictResolve] Subtask {sid} moved to overflow"
+                    f" (agent conflict in group {gkey})"
+                )
+            else:
+                clean.append(int(sid))
+                seen_agents.update(agents)
+        resolved[gkey] = clean
+
+    for sid in overflow:
+        resolved[next_gid] = [sid]
+        next_gid += 1
+
+    return {k: v for k, v in resolved.items() if v}
+
 
 def _fires_still_active(sar_env) -> List[str]:
     """
@@ -725,10 +819,10 @@ def _extract_navigate_target(sar_action: str) -> Optional[str]:
         return None
     action_name, inner = m.group(1), m.group(2)
 
-    if action_name == "GetSupply":
+    # if action_name == "GetSupply":
         # 자동화: insert NavigateTo when PDDL omits gotoobject before getsupply
-        return inner.split(",")[0].strip()
-    elif action_name == "Carry":
+        # return inner.split(",")[0].strip()
+    if action_name == "Carry":
         return inner.strip()
     elif action_name == "DropOff":
         return inner.split(",")[0].strip()
