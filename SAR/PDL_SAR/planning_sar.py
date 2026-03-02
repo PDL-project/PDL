@@ -1011,6 +1011,13 @@ class SARTaskManager(TaskManager):
                     )
                     if replan_result == "fully_replanned":
                         executor.reload_plans_and_dag()
+                        new_plan = executor._build_sar_plan(sid)
+                        if not new_plan:
+                            print(
+                                f"[Feedback] Replan produced no valid plan for "
+                                f"subtask {sid} — skipping retry"
+                            )
+                            return False
                         return True
                     return False
 

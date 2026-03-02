@@ -436,6 +436,13 @@ class SARExecutor:
                 for act in sar_plan:
                     print(f"    {act}")
 
+            # Per-agent UseSupply retry tracking
+            _MAX_USE_SUPPLY_REPEATS = 3
+            _use_supply_retries: Dict[tuple, int] = {}
+            _use_re = re.compile(r"UseSupply\(([^,]+),\s*([^)]+)\)")
+            _nav_re = re.compile(r"NavigateTo\(([^)]+)\)")
+            _get_re = re.compile(r"GetSupply\(([^,]+),")
+
             # Execution loop for this parallel group
             step = 0
             while any(len(q) > 0 for q in agent_queues.values()):
@@ -521,6 +528,63 @@ class SARExecutor:
                             if asid == sid:
                                 agent_queues[aidx].clear()
 
+                # --- Dynamic UseSupply repetition (fire-intensity compensation) ---
+                for agent_idx, (act, sid, success) in enumerate(
+                    zip(actions_this_step, step_agent_sids, successes)
+                ):
+                    if sid is None or not success:
+                        continue
+                    m_use = _use_re.fullmatch(act)
+                    if not m_use:
+                        continue
+                    fire_name   = m_use.group(1).strip()
+                    supply_type = m_use.group(2).strip()
+
+                    # Recover fire_nav (region) and supply_src from completed actions
+                    fire_nav   = None
+                    supply_src = None
+                    for prev in reversed(subtask_completed[sid]):
+                        if fire_nav is None:
+                            m_nav = _nav_re.fullmatch(prev)
+                            if m_nav:
+                                fire_nav = m_nav.group(1).strip()
+                        if supply_src is None:
+                            m_get = _get_re.match(prev)
+                            if m_get:
+                                supply_src = m_get.group(1).strip()
+                        if fire_nav and supply_src:
+                            break
+
+                    if not (fire_nav and supply_src):
+                        continue
+
+                    # Check only THIS region, not the whole fire
+                    if not _fire_region_still_active(sar_env, fire_nav):
+                        continue
+
+                    retry_key = (agent_idx, sid, fire_nav)
+                    cur = _use_supply_retries.get(retry_key, 0)
+                    if cur >= _MAX_USE_SUPPLY_REPEATS:
+                        print(
+                            f"[SARExecutor] UseSupply retry limit reached for "
+                            f"{fire_nav} (agent {agent_names[agent_idx]})"
+                        )
+                        continue
+                    _use_supply_retries[retry_key] = cur + 1
+
+                    extra = [
+                        f"NavigateTo({supply_src})",
+                        f"GetSupply({supply_src}, {supply_type})",
+                        f"NavigateTo({fire_nav})",
+                        f"UseSupply({fire_name}, {supply_type})",
+                    ]
+                    agent_queues[agent_idx].extendleft(reversed(extra))
+                    print(
+                        f"[SARExecutor] Dynamic UseSupply repeat for {fire_nav} "
+                        f"(retry {cur + 1}/{_MAX_USE_SUPPLY_REPEATS}, "
+                        f"agent {agent_names[agent_idx]})"
+                    )
+
             # Build results for this group
             for sid in group_sids:
                 error = subtask_failed.get(sid)
@@ -575,6 +639,12 @@ class SARExecutor:
         completed: List[str] = []
         error: Optional[str] = None
 
+        _MAX_USE_SUPPLY_REPEATS = 3
+        _use_supply_retries: Dict[tuple, int] = {}
+        _use_re = re.compile(r"UseSupply\(([^,]+),\s*([^)]+)\)")
+        _nav_re = re.compile(r"NavigateTo\(([^)]+)\)")
+        _get_re = re.compile(r"GetSupply\(([^,]+),")
+
         step = 0
         while any(q for q in queues.values()):
             step += 1
@@ -610,6 +680,41 @@ class SARExecutor:
                     completed.append(act)
                     if _is_critical_action(act):
                         step_crit_ok = True
+
+                    # Dynamic UseSupply repetition
+                    m_use = _use_re.fullmatch(act)
+                    if m_use:
+                        fire_name   = m_use.group(1).strip()
+                        supply_type = m_use.group(2).strip()
+                        fire_nav = supply_src = None
+                        for prev in reversed(completed):
+                            if fire_nav is None:
+                                mn = _nav_re.fullmatch(prev)
+                                if mn:
+                                    fire_nav = mn.group(1).strip()
+                            if supply_src is None:
+                                mg = _get_re.match(prev)
+                                if mg:
+                                    supply_src = mg.group(1).strip()
+                            if fire_nav and supply_src:
+                                break
+                        if (fire_nav and supply_src
+                                and _fire_region_still_active(sar_env, fire_nav)):
+                            retry_key = (idx, subtask_id, fire_nav)
+                            cur = _use_supply_retries.get(retry_key, 0)
+                            if cur < _MAX_USE_SUPPLY_REPEATS:
+                                _use_supply_retries[retry_key] = cur + 1
+                                extra = [
+                                    f"NavigateTo({supply_src})",
+                                    f"GetSupply({supply_src}, {supply_type})",
+                                    f"NavigateTo({fire_nav})",
+                                    f"UseSupply({fire_name}, {supply_type})",
+                                ]
+                                queues[idx].extendleft(reversed(extra))
+                                print(
+                                    f"[SARExecutor] Retry — Dynamic UseSupply repeat "
+                                    f"for {fire_nav} (retry {cur + 1}/{_MAX_USE_SUPPLY_REPEATS})"
+                                )
                 else:
                     print(f"[SARExecutor] Retry — {agent_names[idx]} FAILED: {act}")
                     completed.append(f"FAILED:{act}")
@@ -771,6 +876,24 @@ def _resolve_parallel_group_conflicts(
         next_gid += 1
 
     return {k: v for k, v in resolved.items() if v}
+
+
+def _fire_region_still_active(sar_env, fire_region_name: str) -> bool:
+    """
+    Return True if a specific fire REGION (Flammable cell) is still active
+    (intensity > 1, i.e. not NONE).
+    """
+    try:
+        field = sar_env.controller.field
+        oid = field.get_id(fire_region_name)
+        fl_obj = field.id_get(oid)
+        if fl_obj is None:
+            return False
+        if hasattr(fl_obj, "intensity"):
+            return fl_obj.intensity.value > 1
+        return False
+    except Exception:
+        return False
 
 
 def _fires_still_active(sar_env) -> List[str]:
