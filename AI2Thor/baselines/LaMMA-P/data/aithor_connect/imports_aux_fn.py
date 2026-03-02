@@ -31,11 +31,18 @@ except ImportError as _e:
 
 def closest_node(node, nodes, no_robot, clost_node_location):
     crps = []
+    nodes = list(nodes)  # snapshot: race condition 방지 (in-place 변경에 의한 크기 변화 차단)
+    if not nodes:
+        return crps
     distances = distance.cdist([node], nodes)[0]
     dist_indices = np.argsort(np.array(distances))
+    max_idx = len(dist_indices) - 1
     for i in range(no_robot):
-        pos_index = dist_indices[(i * 5) + clost_node_location[i]]
-        crps.append (nodes[pos_index])
+        idx = (i * 5) + clost_node_location[i]
+        if idx > max_idx:
+            idx = max_idx  # 범위 초과 시 마지막 인덱스로 클램프
+        pos_index = dist_indices[idx]
+        crps.append(nodes[pos_index])
     return crps
 
 def distance_pts(p1: Tuple[float, float, float], p2: Tuple[float, float, float]):

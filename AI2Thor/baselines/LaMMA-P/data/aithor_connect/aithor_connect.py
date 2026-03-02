@@ -35,6 +35,22 @@ if checker is not None:
     if hasattr(checker, "all_objects"):
         checker.all_objects(obj_ids=_all_oids, scene=scene_name)
 
+# 체커가 사용하는 Pickup 액션명 자동 감지 (PickObject / PickUpObject / PickupObject)
+_all_checker_subtasks = []
+if checker is not None:
+    _all_checker_subtasks = (
+        getattr(checker, "independent_subtasks", []) +
+        getattr(checker, "conditional_subtasks", []) +
+        getattr(checker, "subtasks", [])
+    )
+if any("PickObject(" in s and "PickupObject(" not in s and "PickUpObject(" not in s
+       for s in _all_checker_subtasks):
+    _pickup_name = "PickObject"
+elif any("PickUpObject(" in s for s in _all_checker_subtasks):
+    _pickup_name = "PickUpObject"
+else:
+    _pickup_name = "PickupObject"
+
 # add a top view camera
 event = c.step(action="GetMapViewCameraProperties")
 event = c.step(action="AddThirdPartyCamera", **event.metadata["actionReturn"])
@@ -96,6 +112,36 @@ def _obj_readable(object_id):
     e.g. 'Apple|+00.12|+01.22|-00.34' -> 'Apple'
     """
     return object_id.split("|")[0] if object_id else ""
+
+
+def _find_obj_id(obj_name, objs):
+    """LLM이 생성한 오브젝트 이름으로 실제 AI2Thor objectId를 찾는다.
+
+    지원 형식:
+    - 'Drawer'  → 씬의 첫 번째 Drawer objectId
+    - 'Drawer1' → 씬의 첫 번째 Drawer (1-indexed)
+    - 'Drawer2' → 씬의 두 번째 Drawer
+    - 'Drawer|..' → 이미 objectId 형식 (그대로 반환)
+    """
+    if not obj_name:
+        return None
+    # 이미 objectId 형식
+    if "|" in obj_name:
+        return obj_name if obj_name in objs else None
+    # 숫자 접미사 감지: 'Drawer1' → base='Drawer', idx=0
+    m_num = re.match(r'^([A-Za-z]+)(\d+)$', obj_name)
+    if m_num:
+        base = m_num.group(1)
+        idx = int(m_num.group(2)) - 1  # 0-indexed
+        matches = sorted([o for o in objs if re.match(base + r'[\|_]', o) or o.split("|")[0] == base])
+        if matches:
+            return matches[min(idx, len(matches) - 1)]
+        return None
+    # 일반 패턴 매칭 (기존 동작)
+    for o in objs:
+        if re.match(obj_name, o):
+            return o
+    return None
 
 
 def _obj_checker_name(object_id):
@@ -167,11 +213,11 @@ def exec_actions():
                             action_queue.insert(1, {'action': 'MoveBack', 'agent_id': act['agent_id']})
                     else:
                         print(multi_agent_event.metadata['errorMessage'])
-                    # MAP-THOR checker: report PickupObject (also auto-credits NavigateTo)
+                    # MAP-THOR checker: report Pickup (variant auto-detected: PickObject/PickUpObject/PickupObject)
                     if checker is not None:
                         _readable = _obj_checker_name(act['objectId'])
                         checker.perform_metric_check(
-                            f"PickupObject({_readable})", _success, inventory[act['agent_id']]
+                            f"{_pickup_name}({_readable})", _success, inventory[act['agent_id']]
                         )
 
                 elif act['action'] == 'PutObject':
@@ -453,7 +499,9 @@ def GoToObject(robots, dest_obj):
                 action_queue.append({'action': 'GetReachablePositions', 'agent_id': agent_id})
                 time.sleep(2.0)  # MoveBack×2 + GetReachablePositions 실행 대기
                 # 최신 reachable positions 사용 (동적 장애물 반영), 없으면 원래 것 사용
-                nav_positions = fresh_reachable_positions if fresh_reachable_positions else reachable_positions
+                # list() 로 스냅샷 복사: exec_actions가 del [...] + extend 하는 동안 race condition 방지
+                _fp = list(fresh_reachable_positions)
+                nav_positions = _fp if _fp else reachable_positions
                 crp = closest_node(dest_obj_pos, nav_positions, no_agents, clost_node_location)
             elif count_since_update[ia] < 8:
                 action_queue.append({'action':'ObjectNavExpertAction', 'position':dict(x=crp[ia][0], y=crp[ia][1], z=crp[ia][2]), 'agent_id':agent_id})
@@ -493,6 +541,16 @@ def GoToObject(robots, dest_obj):
     print ("Reached: ", dest_obj)
     if dest_obj == "Cabinet" or dest_obj == "Fridge" or dest_obj == "CounterTop":
         recp_id = dest_obj_id
+
+    # MAP-THOR checker: report NavigateTo for each robot that reached the goal
+    if checker is not None and dest_obj_id is not None:
+        _nav_readable = _obj_checker_name(dest_obj_id)
+        for _r in robots:
+            _aid = int(_r['name'][-1]) - 1
+            checker.perform_metric_check(
+                f"NavigateTo({_nav_readable})", True, inventory[_aid]
+            )
+
     return True
 
 def PickupObject(robots, pick_obj):
@@ -508,18 +566,11 @@ def PickupObject(robots, pick_obj):
         agent_id = int(robot_name[-1]) - 1
         # list of objects in the scene and their centers
         objs = list([obj["objectId"] for obj in c.last_event.metadata["objects"]])
-        objs_center = list([obj["axisAlignedBoundingBox"]["center"] for obj in c.last_event.metadata["objects"]])
-
-        for idx, obj in enumerate(objs):
-            match = re.match(pick_obj, obj)
-            if match is not None:
-                pick_obj_id = obj
-                dest_obj_center = objs_center[idx]
-                if dest_obj_center != {'x': 0.0, 'y': 0.0, 'z': 0.0}:
-                    break # find the first instance
-        # GoToObject(robot, pick_obj_id)
-        # time.sleep(1)
-        print ("Picking Up ", pick_obj_id, dest_obj_center)
+        pick_obj_id = _find_obj_id(pick_obj, objs)
+        if pick_obj_id is None:
+            print(f"[PickupObject] WARNING: '{pick_obj}' not found in scene objects, skipping.")
+            continue
+        print("Picking Up ", pick_obj_id)
         action_queue.append({'action':'PickupObject', 'objectId':pick_obj_id, 'agent_id':agent_id})
         time.sleep(1)
 
@@ -527,21 +578,11 @@ def PutObject(robot, put_obj, recp):
     robot_name = robot['name']
     agent_id = int(robot_name[-1]) - 1
     objs = list(set([obj["objectId"] for obj in c.last_event.metadata["objects"]]))
-    objs_center = list([obj["axisAlignedBoundingBox"]["center"] for obj in c.last_event.metadata["objects"]])
-    objs_dists = list([obj["distance"] for obj in c.last_event.metadata["objects"]])
 
-    metadata = c.last_event.events[agent_id].metadata
-    robot_location = [metadata["agent"]["position"]["x"], metadata["agent"]["position"]["y"], metadata["agent"]["position"]["z"]]
-    dist_to_recp = 9999999 # distance b/w robot and the recp obj
-    for idx, obj in enumerate(objs):
-        match = re.match(recp, obj)
-        if match is not None:
-            dist = objs_dists[idx]
-            if dist < dist_to_recp:
-                recp_obj_id = obj
-                dest_obj_center = objs_center[idx]
-                dist_to_recp = dist
-
+    recp_obj_id = _find_obj_id(recp, objs)
+    if recp_obj_id is None:
+        print(f"[PutObject] WARNING: '{recp}' not found in scene objects, skipping.")
+        return
 
     global recp_id
     # if recp_id is not None:
@@ -574,11 +615,10 @@ def SwitchOn(robot, sw_obj):
 
     # all objects apart from Stove Burner
     else:
-        for obj in objs:
-            match = re.match(sw_obj, obj)
-            if match is not None:
-                sw_obj_id = obj
-                break # find the first instance
+        sw_obj_id = _find_obj_id(sw_obj, objs)
+        if sw_obj_id is None:
+            print(f"[SwitchOn] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+            return
         GoToObject(robot, sw_obj_id)
         time.sleep(1)
         action_queue.append({'action':'ToggleObjectOn', 'objectId':sw_obj_id, 'agent_id':agent_id})
@@ -601,11 +641,10 @@ def SwitchOff(robot, sw_obj):
 
     # all objects apart from Stove Burner
     else:
-        for obj in objs:
-            match = re.match(sw_obj, obj)
-            if match is not None:
-                sw_obj_id = obj
-                break # find the first instance
+        sw_obj_id = _find_obj_id(sw_obj, objs)
+        if sw_obj_id is None:
+            print(f"[SwitchOff] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+            return
         GoToObject(robot, sw_obj_id)
         time.sleep(1)
         action_queue.append({'action':'ToggleObjectOff', 'objectId':sw_obj_id, 'agent_id':agent_id})
@@ -616,11 +655,10 @@ def OpenObject(robot, sw_obj):
     agent_id = int(robot_name[-1]) - 1
     objs = list(set([obj["objectId"] for obj in c.last_event.metadata["objects"]]))
 
-    for obj in objs:
-        match = re.match(sw_obj, obj)
-        if match is not None:
-            sw_obj_id = obj
-            break # find the first instance
+    sw_obj_id = _find_obj_id(sw_obj, objs)
+    if sw_obj_id is None:
+        print(f"[OpenObject] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+        return
 
     global recp_id
     if recp_id is not None:
@@ -636,11 +674,10 @@ def CloseObject(robot, sw_obj):
     agent_id = int(robot_name[-1]) - 1
     objs = list(set([obj["objectId"] for obj in c.last_event.metadata["objects"]]))
 
-    for obj in objs:
-        match = re.match(sw_obj, obj)
-        if match is not None:
-            sw_obj_id = obj
-            break # find the first instance
+    sw_obj_id = _find_obj_id(sw_obj, objs)
+    if sw_obj_id is None:
+        print(f"[CloseObject] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+        return
 
     global recp_id
     if recp_id is not None:
@@ -660,27 +697,25 @@ def BreakObject(robot, sw_obj):
     agent_id = int(robot_name[-1]) - 1
     objs = list(set([obj["objectId"] for obj in c.last_event.metadata["objects"]]))
 
-    for obj in objs:
-        match = re.match(sw_obj, obj)
-        if match is not None:
-            sw_obj_id = obj
-            break # find the first instance
+    sw_obj_id = _find_obj_id(sw_obj, objs)
+    if sw_obj_id is None:
+        print(f"[BreakObject] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+        return
     GoToObject(robot, sw_obj_id)
     time.sleep(1)
     action_queue.append({'action':'BreakObject', 'objectId':sw_obj_id, 'agent_id':agent_id})
     time.sleep(1)
 
 def SliceObject(robot, sw_obj):
-    print ("Slicing: ", sw_obj)
+    print("Slicing: ", sw_obj)
     robot_name = robot['name']
     agent_id = int(robot_name[-1]) - 1
     objs = list(set([obj["objectId"] for obj in c.last_event.metadata["objects"]]))
 
-    for obj in objs:
-        match = re.match(sw_obj, obj)
-        if match is not None:
-            sw_obj_id = obj
-            break # find the first instance
+    sw_obj_id = _find_obj_id(sw_obj, objs)
+    if sw_obj_id is None:
+        print(f"[SliceObject] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+        return
     GoToObject(robot, sw_obj_id)
     time.sleep(1)
     action_queue.append({'action':'SliceObject', 'objectId':sw_obj_id, 'agent_id':agent_id})
@@ -691,11 +726,10 @@ def CleanObject(robot, sw_obj):
     agent_id = int(robot_name[-1]) - 1
     objs = list(set([obj["objectId"] for obj in c.last_event.metadata["objects"]]))
 
-    for obj in objs:
-        match = re.match(sw_obj, obj)
-        if match is not None:
-            sw_obj_id = obj
-            break # find the first instance
+    sw_obj_id = _find_obj_id(sw_obj, objs)
+    if sw_obj_id is None:
+        print(f"[CleanObject] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+        return
     GoToObject(robot, sw_obj_id)
     time.sleep(1)
     action_queue.append({'action':'CleanObject', 'objectId':sw_obj_id, 'agent_id':agent_id})
@@ -706,11 +740,10 @@ def ThrowObject(robot, sw_obj):
     agent_id = int(robot_name[-1]) - 1
     objs = list(set([obj["objectId"] for obj in c.last_event.metadata["objects"]]))
 
-    for obj in objs:
-        match = re.match(sw_obj, obj)
-        if match is not None:
-            sw_obj_id = obj
-            break # find the first instance
+    sw_obj_id = _find_obj_id(sw_obj, objs)
+    if sw_obj_id is None:
+        print(f"[ThrowObject] WARNING: '{sw_obj}' not found in scene objects, skipping.")
+        return
 
     action_queue.append({'action':'ThrowObject', 'objectId':sw_obj_id, 'agent_id':agent_id})
     time.sleep(1)

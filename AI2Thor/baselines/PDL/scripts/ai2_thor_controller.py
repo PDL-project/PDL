@@ -6,6 +6,12 @@ import subprocess
 import time
 import threading
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts.warning=false")
+# QFontDatabase 폰트 경고 억제: cv2 번들 Qt가 fonts 폴더를 못 찾아 뜨는 경고
+if not os.environ.get("QT_QPA_FONTDIR"):
+    for _font_dir in ("/usr/share/fonts", "/usr/share/fonts/truetype", "/usr/local/share/fonts"):
+        if os.path.isdir(_font_dir):
+            os.environ["QT_QPA_FONTDIR"] = _font_dir
+            break
 import cv2
 import numpy as np
 from ai2thor.controller import Controller

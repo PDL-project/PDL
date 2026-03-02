@@ -25,6 +25,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts.warning=false")
+# QFontDatabase 폰트 경고 억제: cv2 번들 Qt가 fonts 폴더를 못 찾아 뜨는 경고
+# QT_QPA_FONTDIR을 시스템 폰트로 지정하면 cv2/qt/fonts 탐색 자체를 건너뜀
+if not os.environ.get("QT_QPA_FONTDIR"):
+    for _font_dir in ("/usr/share/fonts", "/usr/share/fonts/truetype", "/usr/local/share/fonts"):
+        if os.path.isdir(_font_dir):
+            os.environ["QT_QPA_FONTDIR"] = _font_dir
+            break
 import cv2
 import numpy as np
 from ai2thor.controller import Controller
@@ -52,11 +59,14 @@ _TASK_NAME_MAP = {
     "Put all shakers in the fridge": "3_put_all_shakers_fridge",
     "Put all silverware in any drawer": "3_put_all_silverware_drawer",
     "Put all school supplies on the sofa": "3_put_all_school_supplies_sofa",
+    "Put all school supplies in the sofa": "3_put_all_school_supplies_sofa",   # config_type3 variant
     "Move everything on the table to the sofa": "3_clear_table_to_sofa",
     "Put all kitchenware in the cardboard box": "3_put_all_kitchenware_box",
     "Clear the table by placing items at their appropriate positions": "4_clear_table_kitchen",
     "Clear the kitchen central countertop by placing items in their appropriate positions": "4_clear_countertop_kitchen",
+    "Clear the central countertop by placing items in their appropriate positions": "4_clear_countertop_kitchen",  # config_type4 variant
     "Clear the couch by placing the items in other appropriate positions": "4_clear_couch_livingroom",
+    "Clear the couch by storing the items in their appropriate positions": "4_clear_couch_livingroom",  # config_type4 variant
     "Make the living room dark": "4_make_livingroom_dark",
     "Slice all sliceable objects": "4_slice_all_sliceable",
     "Put appropriate utensils in storage": "4_put_appropriate_storage",
@@ -622,6 +632,12 @@ class MultiRobotExecutor:
         c = self.controller
         img_counter = 0
 
+        # 녹화 설정 (PDDL_Module에서 executor.record_video / video_output_path 를 설정해 줌)
+        _record_video = getattr(self, "record_video", False)
+        _video_dir = getattr(self, "video_output_path", None)
+        # writer dict: key = 'top' or robot index(int), value = cv2.VideoWriter
+        _writers: dict = {}
+
         while not self.task_over:
             act = self._dequeue_action()
             if act is not None:
@@ -870,9 +886,24 @@ class MultiRobotExecutor:
                             self.success_exec += 1
                             self._record_agent_success(act['agent_id'])
 
+                    elif act['action'] == 'CleanObject':
+                        self.total_exec += 1
+                        multi_agent_event = c.step(
+                            action="CleanObject",
+                            objectId=act['objectId'],
+                            agentId=act['agent_id'],
+                            forceAction=True
+                        )
+                        if multi_agent_event.metadata['errorMessage'] != "":
+                            action_success = False
+                            print(f"[CleanObject] Error: {multi_agent_event.metadata['errorMessage']}")
+                        else:
+                            self.success_exec += 1
+                            self._record_agent_success(act['agent_id'])
+
                     elif act['action'] == 'Done':
                         multi_agent_event = c.step(action="Done")
-                    
+
                     # 피드백 루프: 서브태스크별 실패 기록
                     # 네비게이션 액션(ObjectNavExpertAction, MoveBack, MoveAhead, Rotate*)의 에러는 무시
                     # 실제 목표 액션(Open/Close/Pickup/Put/Toggle/Slice 등)의 실패만 기록
@@ -898,11 +929,25 @@ class MultiRobotExecutor:
                 #if img_counter % 50 == 0:
                     #print(f"[ExecActions] processed={img_counter}, queue={self._queue_total_len()}")
 
-                # 화면 뷰
+                # 화면 뷰 + 녹화
                 if multi_agent_event is not None:
                     try:
                         for i, e in enumerate(multi_agent_event.events):
-                            cv2.imshow(f'Robot {i+1}', e.cv2img)
+                            frame = e.cv2img
+                            cv2.imshow(f'Robot {i+1}', frame)
+                            if _record_video and _video_dir and frame is not None:
+                                h, w = frame.shape[:2]
+                                if i not in _writers:
+                                    os.makedirs(_video_dir, exist_ok=True)
+                                    path = os.path.join(_video_dir, f"robot{i+1}.mp4")
+                                    _writers[i] = cv2.VideoWriter(
+                                        path,
+                                        cv2.VideoWriter_fourcc(*"mp4v"),
+                                        10,  # fps
+                                        (w, h),
+                                    )
+                                    #print(f"[Record] robot{i+1} → {path}")
+                                _writers[i].write(frame)
                         # 탑뷰
                         if c.last_event.events[0].third_party_camera_frames:
                             top_view_rgb = cv2.cvtColor(
@@ -910,6 +955,19 @@ class MultiRobotExecutor:
                                 cv2.COLOR_BGR2RGB
                             )
                             cv2.imshow('Top View', top_view_rgb)
+                            if _record_video and _video_dir:
+                                h, w = top_view_rgb.shape[:2]
+                                if "top" not in _writers:
+                                    os.makedirs(_video_dir, exist_ok=True)
+                                    path = os.path.join(_video_dir, "top_view.mp4")
+                                    _writers["top"] = cv2.VideoWriter(
+                                        path,
+                                        cv2.VideoWriter_fourcc(*"mp4v"),
+                                        10,
+                                        (w, h),
+                                    )
+                                    #print(f"[Record] top_view → {path}")
+                                _writers["top"].write(top_view_rgb)
                         if cv2.waitKey(25) & 0xFF == ord('q'):
                             break
                     except Exception as e:
@@ -930,6 +988,11 @@ class MultiRobotExecutor:
                     pass
             else:
                 time.sleep(0.05)
+
+        # 녹화 종료
+        for key, w in _writers.items():
+            w.release()
+            print(f"[Record] saved: {key}")
 
     # -----------------------------
     # High-level Actions(로봇 동작 제어)
@@ -953,11 +1016,14 @@ class MultiRobotExecutor:
             return True
 
         # numbered name pattern: e.g. "drawer1" → type="Drawer", num=1
+        # capitalize() 대신 object_dict에서 case-insensitive 검색 사용
+        # (StoveKnob, CoffeeMachine 등 camelCase 타입 대응)
         m = re.match(r'^([a-zA-Z]+?)(\d+)$', p)
         if m and hasattr(self, 'object_dict'):
-            base_type = m.group(1).capitalize()
+            base_type_raw = m.group(1)
             target_num = int(m.group(2))
-            if base_type in self.object_dict:
+            base_type = next((k for k in self.object_dict if k.lower() == base_type_raw.lower()), None)
+            if base_type is not None:
                 # object_dict[base_type] = { obj_id_suffix: number, ... }
                 obj_name, obj_id_suffix = self._parse_object(object_id)
                 if obj_name == base_type and obj_id_suffix in self.object_dict[base_type]:
@@ -967,9 +1033,10 @@ class MultiRobotExecutor:
         # fallback: "drawer (1)" style from PDDL action strings
         m2 = re.match(r'^([a-zA-Z]+)\s*\((\d+)\)$', p)
         if m2 and hasattr(self, 'object_dict'):
-            base_type = m2.group(1).capitalize()
+            base_type_raw = m2.group(1)
             target_num = int(m2.group(2))
-            if base_type in self.object_dict:
+            base_type = next((k for k in self.object_dict if k.lower() == base_type_raw.lower()), None)
+            if base_type is not None:
                 obj_name, obj_id_suffix = self._parse_object(object_id)
                 if obj_name == base_type and obj_id_suffix in self.object_dict[base_type]:
                     if self.object_dict[base_type][obj_id_suffix] == target_num:
@@ -1182,7 +1249,7 @@ class MultiRobotExecutor:
         for _ in range(2):
             self._enqueue_and_wait({'action': 'MoveAhead', 'agent_id': agent_id},
                                    agent_id=agent_id, timeout=3.0)
-        print(f"[Robot{agent_id+1}] Detour: 2 robots blocking, trying alternate route ({rot_action} {angle}°)")
+        #print(f"[Robot{agent_id+1}] Detour: 2 robots blocking, trying alternate route ({rot_action} {angle}°)")
 
     def _issue_yield_request(self, blocking_id: int, requester_id: int, target_object: str) -> bool:
         now = time.time()
@@ -1853,9 +1920,21 @@ class MultiRobotExecutor:
         }, agent_id=agent_id, timeout=5.0)
         if not success:
             self._fail_current_subtask(f"PickupObject failed or timed out for '{obj_pattern}'")
-        # checker: PickupObject (소문자 u — checker 형식에 맞춤)
         readable = self._convert_object_id_to_readable(obj_id)
-        self._checker_report(agent_id, "PickUpObject", readable, success)
+        # checker마다 "PickupObject" / "PickUpObject" / "PickObject" 세 가지 변형 존재
+        # 실제 subtask 목록을 보고 어떤 이름을 쓰는지 감지
+        _all_checker_subtasks = (
+            getattr(self.checker, "independent_subtasks", []) +
+            getattr(self.checker, "conditional_subtasks", []) +
+            getattr(self.checker, "subtasks", [])
+        ) if self.checker is not None else []
+        if any("PickObject(" in s for s in _all_checker_subtasks):
+            _pickup_name = "PickObject"
+        elif any("PickUpObject(" in s for s in _all_checker_subtasks):
+            _pickup_name = "PickUpObject"
+        else:
+            _pickup_name = "PickupObject"
+        self._checker_report(agent_id, _pickup_name, readable, success)
 
     def PutObject(self, agent_id: int, obj_pattern: str, recp_pattern: str):
         """Put held object on/in receptacle."""
@@ -1875,7 +1954,7 @@ class MultiRobotExecutor:
             if _dbg_obj.get("objectId") == recp_id:
                 _contained = _dbg_obj.get("receptacleObjectIds", [])
                 _is_open = _dbg_obj.get("isOpen", False)
-                print(f"[PutObject-DEBUG] recp='{recp_pattern}'({recp_id}) open={_is_open} contains={[c.split('|')[0] for c in _contained]}")
+                #print(f"[PutObject-DEBUG] recp='{recp_pattern}'({recp_id}) open={_is_open} contains={[c.split('|')[0] for c in _contained]}")
                 break
         # checker: put 전 inventory 저장 (put 후엔 비어있으므로)
         self._update_inventory(agent_id)
@@ -2019,6 +2098,27 @@ class MultiRobotExecutor:
         readable = self._convert_object_id_to_readable(obj_id)
         self._checker_report(agent_id, "SliceObject", readable, success)
 
+    def CleanObject(self, agent_id: int, obj_pattern: str):
+        """Clean (wash) object via AI2Thor CleanObject action."""
+        obj_id, _ = self._find_object_with_center(obj_pattern, agent_id=agent_id)
+        if not obj_id:
+            print(f"[Robot{agent_id+1}] Cannot find {obj_pattern}")
+            self._fail_current_subtask(f"CleanObject: cannot find object '{obj_pattern}'")
+            return
+
+        if not self.GoToObject(agent_id, obj_pattern):
+            return
+
+        success = self._enqueue_and_wait({
+            'action': 'CleanObject',
+            'objectId': obj_id,
+            'agent_id': agent_id
+        }, agent_id=agent_id, timeout=5.0)
+        if not success:
+            self._fail_current_subtask(f"CleanObject failed or timed out for '{obj_pattern}'")
+        readable = self._convert_object_id_to_readable(obj_id)
+        self._checker_report(agent_id, "CleanObject", readable, success)
+
     def BreakObject(self, agent_id: int, obj_pattern: str):
         """Break object."""
         #print(f"[Robot{agent_id+1}] Breaking {obj_pattern}")
@@ -2110,6 +2210,9 @@ class MultiRobotExecutor:
 
         elif atype == "switchoff" and len(objs) >= 1:
             self.SwitchOff(agent_id, objs[0])
+
+        elif atype == "cleanobject" and len(objs) >= 1:
+            self.CleanObject(agent_id, objs[0])
 
         elif atype == "sliceobject" and len(objs) >= 1:
             self.SliceObject(agent_id, objs[0])
@@ -2651,7 +2754,11 @@ class MultiRobotExecutor:
                         f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
                     )
                     print("\n")
-                    completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
+                    # 구버전 checker는 subtasks_completed_numerated 대신 subtasks_completed 사용
+                    completed = sorted(
+                        getattr(self.checker, "subtasks_completed_numerated", None)
+                        or getattr(self.checker, "subtasks_completed", [])
+                    )
                     expected = sorted(getattr(self.checker, "subtasks", []))
                     if hasattr(self.checker, 'get_missing_subtasks'):
                         missing = self.checker.get_missing_subtasks()
@@ -2747,16 +2854,29 @@ class MultiRobotExecutor:
                     continue
 
                 # ── 그룹 내 서브태스크 병렬 실행 ──
+                # 같은 로봇에 할당된 서브태스크는 반드시 순차 실행
+                # (동시 실행 시 "hand has something" 에러 발생)
                 print(f"\n[Group {gid}] Starting {len(to_run)} subtask(s) in parallel: {[p.subtask_id for p in to_run]}")
-                threads = []
+                robot_plans: Dict[int, List[SubtaskPlan]] = defaultdict(list)
                 for p in to_run:
-                    t = threading.Thread(target=self._run_subtask, args=(p,), daemon=True)
+                    robot_plans[p.robot_id].append(p)
+
+                def _run_robot_seq(plan_list: List[SubtaskPlan]):
+                    for p in plan_list:
+                        self._run_subtask(p)
+
+                threads = []
+                for robot_id, plan_list in robot_plans.items():
+                    # 로봇마다 하나의 스레드: 같은 로봇의 서브태스크는 해당 스레드 내에서 순차 처리
+                    t = threading.Thread(target=_run_robot_seq, args=(plan_list,), daemon=True)
                     t.start()
-                    threads.append((t, p))
+                    threads.append((t, plan_list))
 
                 # 모든 스레드 완료 대기
                 for t, _ in threads:
                     t.join()
+                # threads를 (t, p) 형식으로 변환 (이후 failed_plans 수집에 사용)
+                threads = [(t, p) for t, plan_list in threads for p in plan_list]
 
                 # 남은 액션 큐 소진 대기
                 self._drain_action_queue()
@@ -2815,7 +2935,11 @@ class MultiRobotExecutor:
                         f"Finished:{finished}, Balance:{balance:.3f}, Exec:{exec_rate:.3f}"
                     )
                     print("\n")
-                    completed = sorted(getattr(self.checker, "subtasks_completed_numerated", []))
+                    # 구버전 checker는 subtasks_completed_numerated 대신 subtasks_completed 사용
+                    completed = sorted(
+                        getattr(self.checker, "subtasks_completed_numerated", None)
+                        or getattr(self.checker, "subtasks_completed", [])
+                    )
                     expected = sorted(getattr(self.checker, "subtasks", []))
                     if hasattr(self.checker, 'get_missing_subtasks'):
                         missing = self.checker.get_missing_subtasks()

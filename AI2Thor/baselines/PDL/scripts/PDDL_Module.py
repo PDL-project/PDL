@@ -735,7 +735,8 @@ class TaskManager:
         return sorted(robots.robots[0]["skills"])
 
     def process_tasks(self, test_tasks: List[str], robot_ids: List[List[int]], objects_ai: str,
-                       floor_plan: Optional[int] = None, run_with_feedback: bool = False, max_replan_retries: int = 2) -> None:
+                       floor_plan: Optional[int] = None, run_with_feedback: bool = False, max_replan_retries: int = 2,
+                       record_video: bool = False) -> None:
         """
         TaskManager 전체 파이프라인의 main함수
         test_tasks -> 자연어 task 리스트
@@ -895,6 +896,15 @@ class TaskManager:
                 # 6. 멀티로봇 실행 코드 생성
                 #print("\n[Step 6] Generating multi-robot execution code...")
                 executor = MultiRobotExecutor(self.base_path)
+                if record_video:
+                    from datetime import datetime as _dt
+                    _vid_dir = os.path.join(
+                        self.resources_path, "videos",
+                        _dt.now().strftime("%m-%d-%Y-%H-%M-%S")
+                    )
+                    executor.record_video = True
+                    executor.video_output_path = _vid_dir
+                    #print(f"[Record] Video output → {_vid_dir}")
                 execution_code = executor.run(
                     task_idx=task_idx,
                     task_name="task",
@@ -3939,6 +3949,11 @@ def parse_arguments() -> argparse.Namespace:
         help="Run execution in simulator and on failure replan via Subtask/Central LLM (requires --floor-plan)",
     )
     parser.add_argument("--max-replan-retries", type=int, default=2, help="Max replan attempts in feedback loop (default: 2)")
+    parser.add_argument(
+        "--record-video",
+        action="store_true",
+        help="Record execution as MP4 videos (top_view.mp4, robot1.mp4, ...) saved in logs/<run>/videos/",
+    )
 
     args = parser.parse_args()
 
@@ -4004,7 +4019,8 @@ def main():
 
             task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=floor_plan_num,
                 run_with_feedback=getattr(args, "run_with_feedback", False),
-                max_replan_retries=getattr(args, "max_replan_retries", 2))
+                max_replan_retries=getattr(args, "max_replan_retries", 2),
+                record_video=getattr(args, "record_video", False))
 
             if args.log_results:
                 task_manager.log_results(
@@ -4026,7 +4042,8 @@ def main():
             objects_ai = f"\n\nobjects = {PDDLUtils.get_ai2_thor_objects(args.floor_plan, task_description=test_tasks[0] if test_tasks else None)}"
             task_manager.process_tasks(test_tasks, robots_test_tasks, objects_ai, floor_plan=args.floor_plan,
                 run_with_feedback=getattr(args, "run_with_feedback", False),
-                max_replan_retries=getattr(args, "max_replan_retries", 2))
+                max_replan_retries=getattr(args, "max_replan_retries", 2),
+                record_video=getattr(args, "record_video", False))
             
             if args.log_results:
                 for idx, task in enumerate(test_tasks):

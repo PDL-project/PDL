@@ -436,16 +436,21 @@ Return ONLY the corrected code that follows the template structure exactly.
         # Few-shot examples for complete plan translation
         few_shot_examples = f"""# CRITICAL INSTRUCTION: DO NOT REDEFINE AI2-THOR FUNCTIONS
 # The following AI2-THOR functions are ALREADY DEFINED and available:
-# - GoToObject(robot, object_name)
-# - PickupObject(robot, object_name) 
-# - PutObject(robot, object_name, target_location)
-# - PutObjectInFridge(robot, object_name, target_location)
-# - OpenObject(robot, object_name)
-# - CloseObject(robot, object_name)
-# - SwitchOn(robot, object_name)
-# - SwitchOff(robot, object_name)
+# - GoToObject(robot, object_name)          -- navigate robot to object
+# - PickupObject(robot, object_name)        -- pick up object (robot must be near it)
+# - PutObject(robot, object_name, target)   -- place held object onto target receptacle
+# - PutObjectInFridge(robot, object_name, target)  -- place into fridge (handles open/close)
+# - OpenObject(robot, object_name)          -- open container/door
+# - CloseObject(robot, object_name)         -- close container/door
+# - SwitchOn(robot, object_name)            -- toggle object on
+# - SwitchOff(robot, object_name)           -- toggle object off
+# - SliceObject(robot, object_name)         -- SLICE object (use for any slicing task, NOT PickupObject)
+# - CleanObject(robot, object_name)         -- wash/clean object
+# - BreakObject(robot, object_name)         -- break object
 # - time.sleep(seconds)
-# 
+#
+# IMPORTANT: For SLICING tasks, always use SliceObject(robot, object), NOT PickupObject.
+# Example: SliceObject(robots[0], 'Bread')  -- correct way to slice bread
 # DO NOT create new function definitions for these. Use them directly as shown in the template.
 # DO NOT add "def GoToObject(...):" or similar definitions.
 # DO NOT redefine robots/action_queue/task_over.

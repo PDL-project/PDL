@@ -292,8 +292,10 @@ def assign_subtasks_cp_sat(
             max_dist = 1.0  # 모든 거리가 0인 경우 방지
 
         for key, d in raw_dists.items():
-            # 0.0~1.0 소수점 정규화 (CP-SAT 정수 제약 → ×1000으로 정밀도 유지)
-            dist_cost_map[key] = int((d / max_dist) * 1000)
+            # 0~10 정수 스케일 (×1000 대신 ×10 사용)
+            # 이유: balance_cost 한 단계 개선 최솟값(200×2=400) > distance 최대 총합(10×N)
+            # → 밸런싱이 항상 거리보다 수학적으로 우선순위를 가짐
+            dist_cost_map[key] = int((d / max_dist) * 10)
 
     # ---- parallel group penalty ----
     # 같은 병렬 그룹 내에서 한 로봇이 여러 subtask을 맡으면 패널티

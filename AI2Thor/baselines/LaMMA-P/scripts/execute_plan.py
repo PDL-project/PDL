@@ -151,6 +151,31 @@ def compile_aithor_exec_file(expt_name):
         allocated_plan = allocated_plan.replace("robots = ['robot1']", robots_line.strip())
         allocated_plan = allocated_plan.replace("robots = ['Robot2']", robots_line.strip())
 
+    # LLM이 태스크 함수를 정의만 하고 호출을 빠뜨리는 경우 자동으로 호출 추가.
+    # execute_task(), task_function(robots) 등 LLM이 쓰는 다양한 이름을 감지.
+    _BUILTIN_FNS = {
+        'GoToObject', 'PickupObject', 'PutObject', 'PutObjectInFridge',
+        'OpenObject', 'CloseObject', 'SwitchOn', 'SwitchOff',
+        'SliceObject', 'CleanObject', 'BreakObject', 'ThrowObject',
+        'exec_actions', 'generate_video', 'closest_node', 'distance_pts',
+        '_obj_readable', '_find_obj_id', '_obj_checker_name',
+    }
+    # 1) robots를 인자로 받는 최상위 def 탐색
+    for _m in re.finditer(r'^def\s+(\w+)\s*\(\s*robots\b', allocated_plan, re.MULTILINE):
+        _fn = _m.group(1)
+        if _fn in _BUILTIN_FNS:
+            continue
+        if not re.search(rf'^{re.escape(_fn)}\s*\(', allocated_plan, re.MULTILINE):
+            allocated_plan = allocated_plan.rstrip() + f"\n{_fn}(robots)\n"
+            break
+    else:
+        # 2) 인자 없는 execute_task / run_task 계열
+        for _fn in ('execute_task', 'run_task', 'main_task', 'execute', 'run'):
+            if re.search(rf'^def\s+{_fn}\s*\(', allocated_plan, re.MULTILINE):
+                if not re.search(rf'^{_fn}\s*\(', allocated_plan, re.MULTILINE):
+                    allocated_plan = allocated_plan.rstrip() + f"\n{_fn}()\n"
+                    break
+
     brks = append_trans_ctr(allocated_plan)
     executable_plan += (allocated_plan + "\n")
     executable_plan += ("no_trans = " + str(brks) + "\n")

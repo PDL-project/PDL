@@ -21,6 +21,21 @@ if checker is not None:
     coverage       = checker.get_coverage()
     transport_rate = checker.get_transport_rate()
     finished       = bool(checker.check_success())
+
+    # 완료/미완료 서브태스크 출력
+    completed = sorted(
+        getattr(checker, "subtasks_completed_numerated", None)
+        or getattr(checker, "subtasks_completed", [])
+    )
+    if hasattr(checker, "get_missing_subtasks"):
+        missing = sorted(checker.get_missing_subtasks())
+    else:
+        all_tasks = set(getattr(checker, "subtasks", []))
+        done_set  = set(getattr(checker, "subtasks_completed_numerated", []))
+        missing   = sorted(all_tasks - done_set)
+
+    print(f"Completed ({len(completed)}): {completed}")
+    print(f"Missing  ({len(missing)}):  {missing}")
 else:
     # checker unavailable (task_folder not mapped): fall back to execution rate only
     coverage       = 0.0
