@@ -3,74 +3,291 @@
   "nodes": [
     {
       "id": 1,
-      "name": "subtask_01_Extinguish_CaldorFire_using_Sand",
+      "name": "subtask_01_Extinguish_RidgeFire_using_Sand",
       "objects": [
         "robot1",
-        "ReservoirUtah",
-        "CaldorFire_Region_1",
-        "CaldorFire_Region_2",
+        "ReservoirSierra",
+        "RidgeFire_Region_1",
         "Sand"
       ],
       "preconds": [
-        "Robot is at base camp.",
-        "Robot is not holding any supply.",
-        "CaldorFire regions are active."
+        "Robot1 is at the base camp.",
+        "Sand is available at ReservoirSierra.",
+        "RidgeFire_Region_1 is on fire."
       ],
       "effects": [
-        "CaldorFire in Region 1 is extinguished.",
-        "CaldorFire in Region 2 is extinguished.",
-        "Robot is not holding any supply."
+        "Robot1 is no longer at the base camp.",
+        "Robot1 has used Sand to extinguish the fire at RidgeFire_Region_1.",
+        "RidgeFire_Region_1 is no longer on fire."
       ]
     },
     {
       "id": 2,
-      "name": "subtask_02_Extinguish_GreatFire_using_Water",
+      "name": "subtask_02_Extinguish_CanyonFire_using_Sand",
       "objects": [
         "robot1",
-        "ReservoirYork",
-        "GreatFire_Region_1",
-        "Water"
+        "ReservoirSierra",
+        "CanyonFire_Region_1",
+        "Sand"
       ],
       "preconds": [
-        "Robot1 is at base camp.",
-        "Water is available at ReservoirYork.",
-        "GreatFire is active in GreatFire_Region_1."
+        "Robot1 is at the base camp.",
+        "Sand is available as a supply.",
+        "CanyonFire_Region_1 is on fire."
       ],
       "effects": [
-        "Robot1 is at GreatFire_Region_1.",
-        "GreatFire in GreatFire_Region_1 is extinguished."
+        "Robot1 extinguishes the fire in CanyonFire_Region_1.",
+        "Robot1 no longer has Sand."
       ]
     },
     {
       "id": 3,
-      "name": "subtask_03_Find_and_rescue_LostPersonTimmy_Multi-Agent_2_robots_required_for_Carry_DropOff",
+      "name": "subtask_03_Extinguish_MoorFire_using_Sand",
+      "objects": [
+        "robot1",
+        "ReservoirSierra",
+        "MoorFire_Region_1",
+        "Sand"
+      ],
+      "preconds": [
+        "Robot is at base camp.",
+        "Sand is available at ReservoirSierra.",
+        "MoorFire_Region_1 is on fire."
+      ],
+      "effects": [
+        "Robot extinguishes the fire at MoorFire_Region_1.",
+        "Robot no longer has Sand."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "subtask_04_Extinguish_HarborFire_using_Water",
+      "objects": [
+        "robot1",
+        "ReservoirDelta",
+        "HarborFire_Region_1",
+        "Water"
+      ],
+      "preconds": [
+        "Robot is at base camp.",
+        "Water is available at ReservoirDelta.",
+        "HarborFire_Region_1 is on fire."
+      ],
+      "effects": [
+        "Robot extinguishes the fire at HarborFire_Region_1.",
+        "Robot no longer has Water supply."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "subtask_05_Extinguish_PlainFire_using_Water",
+      "objects": [
+        "robot1",
+        "ReservoirDelta",
+        "PlainFire_Region_1",
+        "Water"
+      ],
+      "preconds": [
+        "Robot is at base camp.",
+        "Water is available at ReservoirDelta.",
+        "PlainFire_Region_1 is on fire."
+      ],
+      "effects": [
+        "Robot is at PlainFire_Region_1.",
+        "PlainFire_Region_1 is no longer on fire.",
+        "Robot no longer has Water."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "subtask_06_Extinguish_GroveFire_using_Water",
+      "objects": [
+        "robot1",
+        "base_camp",
+        "ReservoirDelta",
+        "GroveFire_Region_1",
+        "Water",
+        "GroveFire"
+      ],
+      "preconds": [
+        "Robot1 is at base camp",
+        "Water is available as a supply",
+        "ReservoirDelta has Water",
+        "GroveFire is active in GroveFire_Region_1"
+      ],
+      "effects": [
+        "GroveFire in GroveFire_Region_1 is extinguished"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "subtask_07_Find_and_rescue_LostPersonNora_Multi-Agent_2_robots_required_for_Carry_DropOff",
       "objects": [
         "robot1",
         "robot2",
-        "LostPersonTimmy",
+        "base_camp",
+        "LostPersonNora",
         "DepositFacility"
       ],
       "preconds": [
-        "Robot1 and Robot2 are at base camp.",
-        "LostPersonTimmy is lost.",
-        "LostPersonTimmy's position is unknown.",
-        "Robot1 and Robot2 are not carrying anyone."
+        "Both robots start at base camp.",
+        "LostPersonNora is identified as lost."
       ],
       "effects": [
-        "LostPersonTimmy is found.",
-        "Robot1 and Robot2 carry LostPersonTimmy to the DepositFacility.",
-        "LostPersonTimmy is rescued."
+        "LostPersonNora is no longer lost and is at the DepositFacility."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "subtask_08_Find_and_rescue_LostPersonLeo_Multi-Agent_2_robots_required_for_Carry_DropOff",
+      "objects": [
+        "robot1",
+        "robot2",
+        "LostPersonLeo",
+        "DepositFacility"
+      ],
+      "preconds": [
+        "LostPersonLeo is lost",
+        "Two robots are at base camp",
+        "LostPersonLeo's location is unknown"
+      ],
+      "effects": [
+        "LostPersonLeo is found",
+        "LostPersonLeo is carried by two robots",
+        "LostPersonLeo is rescued at DepositFacility"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "subtask_09_Find_and_rescue_LostPersonMaya_Multi-Agent_2_robots_required_for_Carry_DropOff",
+      "objects": [
+        "robot1",
+        "robot2",
+        "LostPersonMaya",
+        "DepositFacility"
+      ],
+      "preconds": [
+        "LostPersonMaya is lost",
+        "Two robots are available at base camp"
+      ],
+      "effects": [
+        "LostPersonMaya is found",
+        "LostPersonMaya is rescued and at DepositFacility"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "subtask_10_Find_and_rescue_LostPersonEthan_Multi-Agent_2_robots_required_for_Carry_DropOff",
+      "objects": [
+        "robot1",
+        "robot2",
+        "LostPersonEthan",
+        "DepositFacility"
+      ],
+      "preconds": [
+        "LostPersonEthan is lost",
+        "robot1 and robot2 are at base camp",
+        "LostPersonEthan's position is unknown"
+      ],
+      "effects": [
+        "LostPersonEthan is found",
+        "LostPersonEthan is carried to DepositFacility",
+        "LostPersonEthan is rescued"
       ]
     }
   ],
-  "edges": [],
+  "edges": [
+    {
+      "from_id": 1,
+      "to_id": 2,
+      "dependency_type": "resource",
+      "reason": "Both subtasks use Sand from ReservoirSierra"
+    },
+    {
+      "from_id": 1,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Both subtasks use Sand from ReservoirSierra"
+    },
+    {
+      "from_id": 2,
+      "to_id": 3,
+      "dependency_type": "resource",
+      "reason": "Both subtasks use Sand from ReservoirSierra"
+    },
+    {
+      "from_id": 4,
+      "to_id": 5,
+      "dependency_type": "resource",
+      "reason": "Both subtasks use Water from ReservoirDelta"
+    },
+    {
+      "from_id": 4,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Both subtasks use Water from ReservoirDelta"
+    },
+    {
+      "from_id": 5,
+      "to_id": 6,
+      "dependency_type": "resource",
+      "reason": "Both subtasks use Water from ReservoirDelta"
+    },
+    {
+      "from_id": 7,
+      "to_id": 8,
+      "dependency_type": "resource",
+      "reason": "Both subtasks require two robots for rescue"
+    },
+    {
+      "from_id": 7,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Both subtasks require two robots for rescue"
+    },
+    {
+      "from_id": 7,
+      "to_id": 10,
+      "dependency_type": "resource",
+      "reason": "Both subtasks require two robots for rescue"
+    },
+    {
+      "from_id": 8,
+      "to_id": 9,
+      "dependency_type": "resource",
+      "reason": "Both subtasks require two robots for rescue"
+    },
+    {
+      "from_id": 8,
+      "to_id": 10,
+      "dependency_type": "resource",
+      "reason": "Both subtasks require two robots for rescue"
+    },
+    {
+      "from_id": 9,
+      "to_id": 10,
+      "dependency_type": "resource",
+      "reason": "Both subtasks require two robots for rescue"
+    }
+  ],
   "parallel_groups": {
     "0": [
       1,
-      2
+      4,
+      7
     ],
     "1": [
-      3
+      2,
+      5,
+      8
+    ],
+    "2": [
+      3,
+      6,
+      9
+    ],
+    "3": [
+      10
     ]
   }
 }

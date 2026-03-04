@@ -159,6 +159,7 @@ class SARExecutor:
         self.task_name: str = "task"
         self.task_description: str = ""
         self.assignment: Dict[int, int] = {}          # subtask_id -> robot_id (1-based)
+        self.subtask_titles: Dict[int, str] = {}     # subtask_id -> human-readable title
         self.parallel_groups: Dict[int, List[int]] = {}  # group_id -> [subtask_ids]
         self._plan_actions: Dict[int, List[str]] = {} # subtask_id -> [SAR action strs]
         self._subtask_results: Dict[int, SubTaskExecutionResult] = {}
@@ -206,9 +207,14 @@ class SARExecutor:
             def _parse_rid(v: Any):
                 return [int(x) for x in v] if isinstance(v, list) else int(v)
             self.assignment = {int(k): _parse_rid(v) for k, v in data.get("assignment", {}).items()}
+            self.subtask_titles = {
+                int(s["id"]): s.get("title", f"ST{s['id']}")
+                for s in data.get("subtasks", []) if "id" in s
+            }
         else:
             print(f"[SARExecutor] Warning: assignment file not found: {assignment_file}")
             self.assignment = {}
+            self.subtask_titles = {}
 
         # Load parallel_groups from SubtaskDAG JSON
         dag_json = os.path.join(dag_dir, f"{task_name}_SUBTASK_DAG.json")
