@@ -1,2 +1,0 @@
-gotoobject robot1 drawer6 (1)
-openobject robot1 drawer6 (1)

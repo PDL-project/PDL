@@ -29,7 +29,7 @@ task_mapper = {
 
     # type 2 tasks - ALL COMPLETED
     "Open all the drawers": "2_open_all_drawers",
-    "Open all the cabinets": "2_open_all_cabinets",
+    "Close all the cabinets": "2_close_all_cabinets",
     "Turn on all the stove knobs": "2_turn_on_all_stove_knobs",
     "Put all the vases on the countertop": "2_put_all_vases_countertop",
     "Put all the tomatoes and potatoes in the fridge": "2_put_all_tomatoes_potatoes_fridge",

@@ -1,1 +1,0 @@
-openobject robot1 drawer3 (1)

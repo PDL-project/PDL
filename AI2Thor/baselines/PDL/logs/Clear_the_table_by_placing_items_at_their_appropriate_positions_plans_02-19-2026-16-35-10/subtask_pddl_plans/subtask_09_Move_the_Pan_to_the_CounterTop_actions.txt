@@ -1,4 +1,0 @@
-gotoobject robot1 pan (1)
-pickupobject robot1 pan diningtable (1)
-gotoobject robot1 countertop (1)
-drophandobject robot1 pan countertop (1)

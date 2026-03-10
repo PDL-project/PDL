@@ -20,8 +20,8 @@
     },
 
     {
-      "task_name": "2_open_all_cabinets",
-      "task_description": "Open all the drawers",
+      "task_name": "2_close_all_cabinets",
+      "task_description": "Close all the cabinets",
       "task_id": 11,
       "task_type": "manipulation",
       "task_timeout": 40,

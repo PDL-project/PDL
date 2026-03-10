@@ -16,12 +16,12 @@ class SceneInitializer:
             event: env.event object
         """
     
-            
+        """
         event=controller.step(
         action='PlaceObjectAtPoint',
         objectId='ButterKnife|+01.67|+00.69|-00.11',
         position={'x': 0.21802067756652832, 'y': 0.9203400611877441, 'z': 0.18601493537425995}
         )
-        
+        """
         return event
         

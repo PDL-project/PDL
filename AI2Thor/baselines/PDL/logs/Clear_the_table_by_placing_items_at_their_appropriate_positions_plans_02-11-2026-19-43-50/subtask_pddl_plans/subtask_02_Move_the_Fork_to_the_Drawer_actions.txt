@@ -1,3 +1,0 @@
-gotoobject robot1 fork (1)
-pickupobject robot1 fork diningtable (1)
-throwobject robot1 fork drawer (1)
